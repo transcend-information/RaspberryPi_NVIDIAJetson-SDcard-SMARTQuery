@@ -1,17 +1,17 @@
-# Raspberry Pi - SD Card SMART Query
-Get S.M.A.R.T Information for Transcend SDXC430T and SDXC450I.
+# Raspberry Pi - Monitor SD card health and status
+Get S.M.A.R.T data for Transcend SD card.
 
 -------------------------
 The various statuses of MicroSD products are located in the SMART block of the device. 
-By reading and analyzing the SMART block, you can grasp the product name, serial number,
+By reading and analyzing the SMART block, you can get the product name, serial number,
 firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
 device early potential problems. This document provides a way to read and print SMART 
 block to enable SMART command via the MicroSD port on Raspberry Pi.
 
 Hardware requirements
 -------------------------
-* Raspberry Pi 3 Model B+ with Micro SD port
-* Transcend SDXC430T and SDXC450I
+* Raspberry Pi 3 Model B+
+* Transcend Micro SD 430T / 450I
 
 Usage
 -------------------------
