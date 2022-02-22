@@ -3,20 +3,22 @@ Get S.M.A.R.T data for Transcend SD card.
 
 -------------------------
 The various statuses of MicroSD products are located in the SMART block of the device. 
-By reading and analyzing the SMART block, you can get the product name, serial number,
-firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
-device early potential problems. This document provides a way to read and print SMART 
-block to enable SMART command via the MicroSD port on Raspberry Pi.
+By reading and analyzing the SMART block, you can get the product name, serial number, firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
+device early potential problems. This document provides a way to read and print SMART block to enable SMART command via the MicroSD port on Raspberry Pi.
 
 Hardware requirements
 -------------------------
-* Raspberry Pi 3 Model B+
+* Raspberry Pi 3 Model B+ or later model
 * Transcend Micro SD 430T / 450I
+
+Install Raspberry Pi OS
+-------------------------
+Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to a computer with an SD card reader at https://www.raspberrypi.com/software
 
 Usage
 -------------------------
 
-- Download mmc-utils package and modify it to support SMART DUMP function. Please download the source code and modify it step by step.
+- The mmc-utils package and modify it to support SMART DUMP function. Please download the source code and modify it step by step.
 
 1. Download the code by following command with terminal.
 ```
