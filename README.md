@@ -4,7 +4,7 @@ Get S.M.A.R.T data for Transcend SD card.
 -------------------------
 The various statuses of MicroSD products are located in the SMART block of the device. 
 By reading and analyzing the SMART block, you can get the product name, serial number, firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
-device early potential problems. This document provides a way to read and print SMART block to enable SMART command via the MicroSD port on Raspberry Pi.
+device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the MicroSD port on Raspberry Pi.
 
 Hardware requirements
 -------------------------
@@ -25,7 +25,7 @@ Usage
 $ git clone https://kernel.googlesource.com/pub/scm/linux/kernel/git/cjb/mmc-utils-old
 ```
 
-2. Update the files in [folder](https://github.com/WBJisMyName/READMETest/tree/main/mmc-utils-old) to the corresponding files.
+2. Update the 4 files in mmc-utils [folder](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/tree/main/mmc-utils) to the corresponding files.
 
 3. Use the Make command to compile the updated source code.
 ```
@@ -33,19 +33,19 @@ $ make
 ```
 4. After build success, check the availability of the mmc tool by -h
 ```
-$ ./mmc –h
+$ sudo ./mmc –h
 ``` 
 5. Get SMART buffer by following command.
 ```
-$ ./mmc smtbuffer /dev/mmcblk0
+$ sudo ./mmc smtbuffer /dev/mmcblk0
 ``` 
 6. Get SMART information by following command.
 ```
-$ ./mmc smart /dev/mmcblk0
+$ sudo ./mmc smart /dev/mmcblk0
 ``` 
 7. Get Card life by following command.
 ```
-$ ./mmc health /dev/mmcblk0
+$ sudo ./mmc health /dev/mmcblk0
 ``` 
 
 Command Execution
