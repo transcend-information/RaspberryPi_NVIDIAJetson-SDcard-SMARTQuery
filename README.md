@@ -4,7 +4,7 @@ Get S.M.A.R.T data for Transcend SD card.
 -------------------------
 The various statuses of MicroSD products are located in the SMART block of the device. 
 By reading and analyzing the SMART block, you can get the product name, serial number, firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
-device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the MicroSD port on Raspberry Pi.
+device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the native MicroSD port on Raspberry Pi.
 
 Hardware requirements
 -------------------------
@@ -13,7 +13,9 @@ Hardware requirements
 
 Install Raspberry Pi OS
 -------------------------
-Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to a computer with an SD card reader at https://www.raspberrypi.com/software
+1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget Micro SD with an SD card reader at https://www.raspberrypi.com/software
+
+2. Insert the Micro SD to Raspberry Pi native MicroSD slot.
 
 Usage
 -------------------------
