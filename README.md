@@ -8,8 +8,7 @@ device early potential problems. This document provides a way to use the MMC tes
 
 Hardware requirements
 -------------------------
-* Raspberry Pi 3 Model B+ or later model
-* Raspberry Pi native MicroSD slot
+* Raspberry Pi 1 or later model
 * Transcend Micro SD 430T / 450I
 
 Install Raspberry Pi OS
