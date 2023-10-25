@@ -62,4 +62,4 @@ Command Execution
 ![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
 
 Note: For other SMART Data Structure, please refer to Transcend microSD Data Sheet.</br>
-![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.png)
+![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.PNG)
