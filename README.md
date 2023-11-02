@@ -1,21 +1,22 @@
 # Monitor SD card health and status using Raspberry Pi
-Get S.M.A.R.T data for Transcend SD card.
+Get S.M.A.R.T data for Transcend Embedded MicroSD / SD products. 
 
 -------------------------
 The various statuses of MicroSD products are located in the SMART block of the device. 
 By reading and analyzing the SMART block, you can get the product name, serial number, firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
-device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the native MicroSD port on Raspberry Pi. This project is in reference to Transcend microSD products.
+device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the native MicroSD slot on Raspberry Pi. 
+Note : The project works for Transcend Embedded MicroSD products.
 
 Hardware requirements
 -------------------------
-* Raspberry Pi 1 or later model
-* Transcend Micro SD 430T / 450I / 460I / 460T
+* Raspberry Pi 1 or later model.
+* Transcend Embedded MicroSD 430T / 450I / 460I / 460T or Embedded SD SDC460T / SDC400I / SDC240T with Raspberry Pi 1.
 
 Install Raspberry Pi OS
 -------------------------
-1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget Micro SD with an SD card reader at https://www.raspberrypi.com/software
+1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget MicroSD with an SD card reader at https://www.raspberrypi.com/software
 
-2. Insert the Micro SD to Raspberry Pi native MicroSD slot.
+2. Insert the MicroSD to Raspberry Pi native MicroSD slot.
 
 Usage
 -------------------------
@@ -61,5 +62,5 @@ Command Execution
 3. To show card life(Heath)</br></br>
 ![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
 
-Note: For other SMART Data Structure, please refer to Transcend microSD Data Sheet.</br>
+Note: For other SMART Data Structure, please refer to Transcend MicroSD datasheet.</br>
 ![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.PNG)
