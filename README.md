@@ -1,12 +1,12 @@
 # Monitor SD card health and status using Raspberry Pi / NVIDIA Jetson Nano
-Get S.M.A.R.T data for Transcend Embedded MicroSD / SD products. 
+Get S.M.A.R.T data for Transcend Embedded microSD / SD products. 
 
 -------------------------
-The various statuses of MicroSD products are located in the SMART block of the device. 
+The various statuses of microSD products are located in the SMART block of the device. 
 By reading and analyzing the SMART block, you can get the product name, serial number, firmware version, Erase count, health, etc. of the device, so as to monitor and find the 
-device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the native MicroSD slot on Raspberry PiRaspberry Pi / NVIDIA Jetson Nano. 
+device early potential problems. This document provides a way to use the MMC test tools called mmc-utils that get SMART block to enable SMART command via the native microSD slot on Raspberry PiRaspberry Pi / NVIDIA Jetson Nano. 
 
-**Note : The project works for Transcend Embedded MicroSD / SD products.**
+**Note : The project works for Transcend Embedded microSD / SD products.**
 
 Hardware requirements
 -------------------------
@@ -15,22 +15,22 @@ Hardware requirements
    - NVIDIA Jetson Nano
 
 2. Supported SD cards
-   - Transcend Embedded MicroSD 430T / 450I / 460I / 460T 
+   - Transcend Embedded microSD 430T / 450I / 460I / 460T 
    - Transcend Embedded SD SDC460T / SDC400I / SDC240T
 
 Install Raspberry Pi OS
 -------------------------
-1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget MicroSD with an SD card reader at https://www.raspberrypi.com/software
+1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget microSD with an SD card reader at https://www.raspberrypi.com/software
 
-2. Insert the MicroSD to Raspberry Pi native MicroSD or SD slot.
+2. Insert the microSD to Raspberry Pi native microSD or SD slot.
 
 Install NVIDIA Jetson nano OS
 -------------------------
-1. Download Jetson Nano Developer Kit SD Card Image and Etcher from https://developer.nvidia.com/embedded/learn/get-started-jetson-nano-devkit#write
+1. Download Jetson Nano Developer Kit SD Card Image from https://developer.nvidia.com/embedded/learn/get-started-jetson-nano-devkit#write
 
-2. Install Etcher and use an SD card reader to flash the image into the target MicroSD
+2. Write the SD card image into the target microSD using a graphical program like Etcher.
 
-3. Insert the MicroSD to NVIDIA Jetson native MicroSD or SD slot.
+3. Insert the microSD to NVIDIA Jetson native microSD slot.
 
 
 Usage
@@ -86,5 +86,5 @@ Command Execution
 3. To show card life(Heath)</br></br>
 ![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
 
-Note: For other SMART Data Structure, please refer to Transcend Embedded MicroSD / SD datasheet.</br>
+Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
 ![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.PNG)
