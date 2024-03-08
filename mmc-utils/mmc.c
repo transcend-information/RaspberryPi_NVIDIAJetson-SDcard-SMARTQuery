@@ -26,8 +26,6 @@
 
 #include "mmc_cmds.h"
 
-#define MMC_VERSION	"0.1"
-
 #define BASIC_HELP 0
 #define ADVANCED_HELP 1
 
@@ -58,15 +56,31 @@ static struct Command commands[] = {
 		"Print extcsd data from <device>.",
 	  NULL
 	},
+	{ do_write_extcsd, 3,
+	  "extcsd write", "<offset> <value> <device>\n"
+		  "Write <value> at offset <offset> to <device>'s extcsd.",
+	  NULL
+	},
 	{ do_writeprotect_boot_get, -1,
 	  "writeprotect boot get", "<device>\n"
 		"Print the boot partitions write protect status for <device>.",
 	  NULL
 	},
 	{ do_writeprotect_boot_set, -1,
-	  "writeprotect boot set", "<device>\n"
-		"Set the boot partitions write protect status for <device>.\nThis sets the eMMC boot partitions to be write-protected until\nthe next boot.",
-	  NULL
+	  "writeprotect boot set",
+#ifdef DANGEROUS_COMMANDS_ENABLED
+		"[-p] "
+#endif /* DANGEROUS_COMMANDS_ENABLED */
+		"<device> [<number>]\n"
+		"Set the boot partition write protect status for <device>.\n"
+		"If <number> is passed (0 or 1), only protect that particular\n"
+		"eMMC boot partition, otherwise protect both. It will be\n"
+		"write-protected until the next boot.\n"
+#ifdef DANGEROUS_COMMANDS_ENABLED
+		"  -p  Protect partition permanently instead.\n"
+		"      NOTE! -p is a one-time programmable (unreversible) change.\n"
+#endif /* DANGEROUS_COMMANDS_ENABLED */
+	  , NULL
 	},
 	{ do_writeprotect_user_set, -4,
 	  "writeprotect user set", "<type>" "<start block>" "<blocks>" "<device>\n"
@@ -120,9 +134,12 @@ static struct Command commands[] = {
 	  "<boot_bus_width> must be \"x1|x4|x8\"",
 	  NULL
 	},
-	{ do_write_bkops_en, -1,
-	  "bkops enable", "<device>\n"
-		"Enable the eMMC BKOPS feature on <device>.\nNOTE!  This is a one-time programmable (unreversible) change.",
+	{ do_write_bkops_en, -2,
+	  "bkops_en", "<auto|manual> <device>\n"
+		"Enable the eMMC BKOPS feature on <device>.\n"
+		"The auto (AUTO_EN) setting is only supported on eMMC 5.0 or newer.\n"
+		"Setting auto won't have any effect if manual is set.\n"
+		"NOTE!  Setting manual (MANUAL_EN) is one-time programmable (unreversible) change.",
 	  NULL
 	},
 	{ do_hwreset_en, -1,
@@ -136,7 +153,7 @@ static struct Command commands[] = {
 	  NULL
 	},
 	{ do_sanitize, -1,
-	  "sanitize", "<device>\n"
+	  "sanitize", "<device> [timeout_ms]\n"
 		"Send Sanitize command to the <device>.\nThis will delete the unmapped memory region of the device.",
 	  NULL
 	},
@@ -211,8 +228,48 @@ static struct Command commands[] = {
 	  NULL
 	},
 	{ do_ffu, -2,
-	  "ffu", "<image name> <device>\n"
-		"Run Field Firmware Update with <image name> on <device>.\n",
+	  "ffu", "<image name> <device> [chunk-bytes]\n"
+		"Run Field Firmware Update with <image name> on <device>.\n"
+		"[chunk-bytes] is optional and defaults to its max - 512k. "
+		"should be in decimal bytes and sector aligned.\n",
+	  NULL
+	},
+	{ do_erase, -4,
+	"erase", "<type> " "<start address> " "<end address> " "<device>\n"
+		"Send Erase CMD38 with specific argument to the <device>\n\n"
+		"NOTE!: This will delete all user data in the specified region of the device\n"
+		"<type> must be: legacy | discard | secure-erase | "
+		"secure-trim1 | secure-trim2 | trim \n",
+	NULL
+	},
+	{ do_general_cmd_read, -1,
+	"gen_cmd read", "<device> [arg]\n"
+		"Send GEN_CMD (CMD56) to read vendor-specific format/meaning data from <device>\n\n"
+		"NOTE!: [arg] is optional and defaults to 0x1. If [arg] is specified, then [arg]\n"
+		"must be a 32-bit hexadecimal number, prefixed with 0x/0X. And bit0 in [arg] must\n"
+		"be 1.",
+	NULL
+	},
+	{ do_softreset, -1,
+	  "softreset", "<device>\n"
+	  "Issues a CMD0 softreset, e.g. for testing if hardware reset for UHS works",
+	  NULL
+	},
+	{ do_preidle, -1,
+	  "preidle", "<device>\n"
+	  "Issues a CMD0 GO_PRE_IDLE",
+	  NULL
+	},
+	{ do_alt_boot_op, -1,
+	  "boot_operation", "<boot_data_file> <device>\n"
+	  "Does the alternative boot operation and writes the specified starting blocks of boot data into the requested file.\n\n"
+	  "Note some limitations\n:"
+	  "1. The boot operation must be configured, e.g. for legacy speed:\n"
+	  "mmc-utils bootbus set single_backward retain x8 /dev/mmcblk2\n"
+	  "mmc-utils bootpart enable 1 0 /dev/mmcblk2\n"
+	  "2. The MMC must currently be running at the bus mode that is configured for the boot operation (HS200 and HS400 not supported at all).\n"
+	  "3. Only up to 512K bytes of boot data will be transferred.\n"
+	  "4. The MMC will perform a soft reset, if your system cannot handle that do not use the boot operation from mmc-utils.\n",
 	  NULL
 	},
 	{ do_SMART_buffer_dump, -1,/* Get SMART buffer */
@@ -274,7 +331,7 @@ static void help(char *np)
 
 	printf("\n\t%s help|--help|-h\n\t\tShow the help.\n",np);
 	printf("\n\t%s <cmd> --help\n\t\tShow detailed help for a command or subset of commands.\n",np);
-	printf("\n%s\n", MMC_VERSION);
+	printf("\n%s\n", VERSION);
 }
 
 static int split_command(char *cmd, char ***commands)
@@ -455,7 +512,7 @@ static int parse_args(int argc, char **argv,
 	}
 
 	if(helprequested){
-		printf("\n%s\n", MMC_VERSION);
+		printf("\n%s\n", VERSION);
 		return 0;
 	}
 

@@ -17,23 +17,58 @@
  * those modifications are Copyright (c) 2016 SanDisk Corp.
  */
 
+#include <linux/major.h>
 #include <linux/mmc/ioctl.h>
 
-/* From kernel linux/major.h */
-#define MMC_BLOCK_MAJOR			179
-
 /* From kernel linux/mmc/mmc.h */
+#define MMC_GO_IDLE_STATE         0   /* bc                          */
+#define MMC_GO_IDLE_STATE_ARG		0x0
+#define MMC_GO_PRE_IDLE_STATE_ARG	0xF0F0F0F0
+#define MMC_BOOT_INITIATION_ARG		0xFFFFFFFA
 #define MMC_SWITCH		6	/* ac	[31:0] See below	R1b */
 #define MMC_SEND_EXT_CSD	8	/* adtc				R1  */
 #define MMC_SEND_STATUS		13	/* ac   [31:16] RCA        R1  */
 #define R1_SWITCH_ERROR   (1 << 7)  /* sx, c */
 #define MMC_SWITCH_MODE_WRITE_BYTE	0x03	/* Set target to value */
 #define MMC_READ_MULTIPLE_BLOCK  18   /* adtc [31:0] data addr   R1  */
+#define MMC_SET_BLOCK_COUNT      23   /* adtc [31:0] data addr   R1  */
 #define MMC_WRITE_BLOCK		24	/* adtc [31:0] data addr	R1  */
 #define MMC_WRITE_MULTIPLE_BLOCK 25   /* adtc                    R1  */
 #define MMC_SET_WRITE_PROT	28    /* ac   [31:0] data addr   R1b */
 #define MMC_CLEAR_WRITE_PROT	29    /* ac   [31:0] data addr   R1b */
 #define MMC_SEND_WRITE_PROT_TYPE 31   /* ac   [31:0] data addr   R1  */
+#define MMC_ERASE_GROUP_START	35    /* ac   [31:0] data addr   R1  */
+#define MMC_ERASE_GROUP_END	36    /* ac   [31:0] data addr   R1  */
+#define MMC_ERASE		38    /* ac   [31] Secure request
+					      [30:16] set to 0
+					      [15] Force Garbage Collect request
+					      [14:2] set to 0
+					      [1] Discard Enable
+					      [0] Identify Write Blocks for
+					      Erase (or TRIM Enable)  R1b */
+#define MMC_GEN_CMD		56   /* adtc  [31:1] stuff bits.
+					      [0]: RD/WR1 R1 */
+
+#define R1_OUT_OF_RANGE         (1 << 31)       /* er, c */
+#define R1_ADDRESS_ERROR        (1 << 30)       /* erx, c */
+#define R1_BLOCK_LEN_ERROR      (1 << 29)       /* er, c */
+#define R1_ERASE_SEQ_ERROR      (1 << 28)       /* er, c */
+#define R1_ERASE_PARAM          (1 << 27)       /* ex, c */
+#define R1_WP_VIOLATION         (1 << 26)       /* erx, c */
+#define R1_CARD_IS_LOCKED       (1 << 25)       /* sx, a */
+#define R1_LOCK_UNLOCK_FAILED   (1 << 24)       /* erx, c */
+#define R1_COM_CRC_ERROR        (1 << 23)       /* er, b */
+#define R1_ILLEGAL_COMMAND      (1 << 22)       /* er, b */
+#define R1_CARD_ECC_FAILED      (1 << 21)       /* ex, c */
+#define R1_CC_ERROR             (1 << 20)       /* erx, c */
+#define R1_ERROR                (1 << 19)       /* erx, c */
+#define R1_CID_CSD_OVERWRITE    (1 << 16)       /* erx, c, CID/CSD overwrite */
+#define R1_WP_ERASE_SKIP        (1 << 15)       /* sx, c */
+#define R1_CARD_ECC_DISABLED    (1 << 14)       /* sx, a */
+#define R1_ERASE_RESET          (1 << 13)       /* sr, c */
+#define R1_READY_FOR_DATA       (1 << 8)        /* sx, a */
+#define R1_EXCEPTION_EVENT      (1 << 6)        /* sr, a */
+#define R1_APP_CMD              (1 << 5)        /* sr, c */
 
 /*
  * EXT_CSD fields
@@ -61,7 +96,9 @@
 #define EXT_CSD_CACHE_SIZE_2		251
 #define EXT_CSD_CACHE_SIZE_1		250
 #define EXT_CSD_CACHE_SIZE_0		249
+#define EXT_CSD_SEC_FEATURE_SUPPORT	231
 #define EXT_CSD_BOOT_INFO		228	/* R/W */
+#define EXT_CSD_BOOT_MULT		226	/* RO */
 #define EXT_CSD_HC_ERASE_GRP_SIZE	224
 #define EXT_CSD_HC_WP_GRP_SIZE		221
 #define EXT_CSD_SEC_COUNT_3		215
@@ -74,6 +111,7 @@
 #define EXT_CSD_PART_CONFIG		179
 #define EXT_CSD_BOOT_BUS_CONDITIONS	177
 #define EXT_CSD_ERASE_GROUP_DEF		175
+#define EXT_CSD_BOOT_WP_STATUS		174
 #define EXT_CSD_BOOT_WP			173
 #define EXT_CSD_USER_WP			171
 #define EXT_CSD_FW_CONFIG		169	/* R/W */
@@ -126,9 +164,10 @@
 #define EN_REL_WR	(1<<2)
 
 /*
- * BKOPS_EN field definition
+ * BKOPS_EN field definitions
  */
-#define BKOPS_ENABLE	(1<<0)
+#define BKOPS_MAN_ENABLE	(1<<0)
+#define BKOPS_AUTO_ENABLE	(1<<1)
 
 /*
  * EXT_CSD field definitions
@@ -143,9 +182,19 @@
 #define EXT_CSD_HPI_SUPP		(1<<0)
 #define EXT_CSD_HPI_IMPL		(1<<1)
 #define EXT_CSD_CMD_SET_NORMAL		(1<<0)
+/* NOTE: The eMMC spec calls the partitions "Area 1" and "Area 2", but Linux
+ * calls them mmcblk0boot0 and mmcblk0boot1. To avoid confustion between the two
+ * numbering schemes, this tool uses 0 and 1 throughout. */
+#define EXT_CSD_BOOT_WP_S_AREA_1_PERM	(0x08)
+#define EXT_CSD_BOOT_WP_S_AREA_1_PWR	(0x04)
+#define EXT_CSD_BOOT_WP_S_AREA_0_PERM	(0x02)
+#define EXT_CSD_BOOT_WP_S_AREA_0_PWR	(0x01)
+#define EXT_CSD_BOOT_WP_B_SEC_WP_SEL	(0x80)
 #define EXT_CSD_BOOT_WP_B_PWR_WP_DIS	(0x40)
 #define EXT_CSD_BOOT_WP_B_PERM_WP_DIS	(0x10)
+#define EXT_CSD_BOOT_WP_B_PERM_WP_SEC_SEL (0x08)
 #define EXT_CSD_BOOT_WP_B_PERM_WP_EN	(0x04)
+#define EXT_CSD_BOOT_WP_B_PWR_WP_SEC_SEL (0x02)
 #define EXT_CSD_BOOT_WP_B_PWR_WP_EN	(0x01)
 #define EXT_CSD_BOOT_INFO_HS_MODE	(1<<2)
 #define EXT_CSD_BOOT_INFO_DDR_DDR	(1<<1)
@@ -177,9 +226,12 @@
 #define EXT_CSD_REV_V4_2		2
 #define EXT_CSD_REV_V4_1		1
 #define EXT_CSD_REV_V4_0		0
+#define EXT_CSD_SEC_GB_CL_EN		(1<<4)
+#define EXT_CSD_SEC_ER_EN		(1<<0)
 
 
 /* From kernel linux/mmc/core.h */
+#define MMC_RSP_NONE	0			/* no response */
 #define MMC_RSP_PRESENT	(1 << 0)
 #define MMC_RSP_136	(1 << 1)		/* 136 bit response */
 #define MMC_RSP_CRC	(1 << 2)		/* expect valid crc */
@@ -188,6 +240,7 @@
 
 #define MMC_CMD_AC	(0 << 5)
 #define MMC_CMD_ADTC	(1 << 5)
+#define MMC_CMD_BC	(2 << 5)
 
 #define MMC_RSP_SPI_S1	(1 << 7)		/* one status byte */
 #define MMC_RSP_SPI_BUSY (1 << 10)		/* card may send busy */
