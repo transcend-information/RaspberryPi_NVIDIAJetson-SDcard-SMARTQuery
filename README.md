@@ -41,7 +41,7 @@ Usage
 1. Download the code by following command with terminal.
    
 ```
- git clone https://kernel.googlesource.com/pub/scm/linux/kernel/git/cjb/mmc-utils-old
+ git clone https://kernel.googlesource.com/pub/scm/utils/mmc/mmc-utils
 ```
 
 2. Update the 4 files in mmc-utils [folder](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/tree/main/mmc-utils) to the corresponding files.
