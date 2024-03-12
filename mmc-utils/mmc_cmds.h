@@ -51,11 +51,30 @@ int do_softreset(int nargs, char **argv);
 int do_preidle(int nargs, char **argv);
 int do_alt_boot_op(int nargs, char **argv);
 
+
+/* CID */
+typedef struct cid_info {
+	unsigned int mid;
+	char sd_oid[3];
+	unsigned int mmc_oid;
+	char pnm[7];
+	unsigned int prv_major;
+	unsigned int prv_minor;
+	unsigned int psn;
+	unsigned int mdt_month;
+	unsigned int mdt_year;
+	unsigned int crc;
+	unsigned int cbx;//MMC specific
+	char *manufacturer;
+	char *type;
+}CIDInfo;
+
 /* SD SMART */
 int do_SMART_buffer_dump(int nargs, char **argv); //Show SMART raw buffer
 int show_SMART_info(int nargs, char **argv); //Show SMART info
 int show_Health_info(int nargs, char **argv); //Show Health info
-int process_cid(char *dir);//show product id
+int show_CID_info(int nargs, char **argv);
+int process_cid(char *dir, CIDInfo *cid_info);//Get cid info
 int CMD56_data_in(int fd, int argCmd56, char *block_data_buff);
 void dump_smart_data(char *block_data_buff);
 void is_transcend_card(char *block_data_buff, char function);

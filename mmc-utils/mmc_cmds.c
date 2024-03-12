@@ -3280,26 +3280,20 @@ int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/
 	}
 	ret = CMD56_data_in(fd, argCmd56 , data_buff);
 	if (ret) {
-	fprintf(stderr, "CMD56 function fail, %s\n", device);
-	exit(1);
+		fprintf(stderr, "CMD56 function fail, %s\n", device);
+		exit(1);
 	}
 				
 	if(system("df / -h -T") == -1)
 		printf("Error to get df info\n");	
-	// char *device_path = "/dev";
-	// char *s =strstr(device, device_path);
-	// char *device_name;	
-	// if(s != NULL)
-	// {
-	// 	printf("%s\n", device+strlen(device_path));
-	// 	device_name = device+strlen(device_path);
-	// 	printf("%s\n", device_name);
-	// }
+
 	FILE *ptr = NULL;
 	char readbuf[256];
 	char *udevadm_cmd = "udevadm info --query=all --name=";
 	char cmd[100];
 	char *sysfs_path = malloc(100);
+	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
 	strcpy(cmd,udevadm_cmd);
 	strcat(cmd,device);
 	if((ptr = popen(cmd, "r")) != NULL)
@@ -3315,30 +3309,63 @@ int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/
 		}
 		pclose(ptr);
 	}
-	// cmd[0] = '\0';
-	// strcpy(cmd, "./mmc cid read /sys");
-	// strcat(cmd, sysfs_path);
-	// strcat(cmd, "/device");
-	// if((ptr = popen(cmd, "r")) != NULL)
-	// {
-	// 	while(fgets(readbuf,256,ptr) != NULL)
-	// 	{			
-	// 		if(strstr(readbuf, "product:") != NULL)
-	// 		{
-	// 			printf("%s",readbuf);
-	// 			break;
-	// 		}
-	// 	}
-	// }	
+
 	cmd[0] = '\0';
 	strcpy(cmd, "/sys");
 	strcat(cmd, sysfs_path);
 	strcat(cmd, "/device");
-	if(!process_cid(cmd))
-	{
-		printf("get cid info fail.");
-	}
+	if(process_cid(cmd, cid_info) != 1)
+		printf("get cid info fail.\n");
+	else
+		printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
+	
 	is_transcend_card(data_buff, TYPE_SMART); /* Only support microSDXC430T and microSDXC450I */
+	return ret;
+}
+
+int show_CID_info(int nargs, char **argv)
+{
+	int ret;
+
+	static const char *months[] = {
+		"jan", "feb", "mar", "apr", "may", "jun",
+		"jul", "aug", "sep", "oct", "nov", "dec",
+		"invalid0", "invalid1", "invalid2", "invalid3",
+	};
+
+	char *device;
+	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
+	device = argv[nargs-1];
+
+	if(process_cid(device, cid_info) != 1)
+	{
+		printf("get cid info fail.\n");
+		exit(1);
+	}
+	printf("type:\t\t\t%s",cid_info->type);
+
+	char value[64];
+	sprintf(value, "Manufacturer ID:\t%s", cid_info->manufacturer);
+	printf("\n%s", value);
+	if(strcmp(cid_info->type,"SD") == 0 )
+		sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
+	else
+		sprintf(value, "OEM/Applicateion ID:\t%d", cid_info->mmc_oid);
+	printf("\n%s", value);
+	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
+	printf("\n%s", value);
+	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
+	printf("\n%s", value);
+	sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
+	printf("\n%s", value);
+	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
+	printf("\n%s", value);
+	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
+	printf("\n%s\n", value);
+
+	ret = 1;
+	
 	return ret;
 }
 
@@ -3431,6 +3458,9 @@ void parsing_SMART_info(char *block_data_buff) /* parsing SMART 512-byte array *
 {	
 	char value[64];
 	
+	sprintf(value, "==========SMART Info==========");
+	printf("\n%s", value);
+
 	char *card_marker = grabString(block_data_buff, 0, 16);
 	sprintf(value, "Card Marker(0x00):\t\t\t%s", card_marker);
 	printf("\n%s", value);

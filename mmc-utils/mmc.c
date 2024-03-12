@@ -284,6 +284,12 @@ static struct Command commands[] = {
 		"health", "<device>\n",
 		NULL
 	},
+	{ show_CID_info, -1,    /* Get CID info*/
+		"cid info", "<device path>\n"
+			"Print CID data from <device path>.\n"
+			"The device path should specify the cid file directory.",
+		NULL
+	},
 	{ 0, 0, 0, 0 }
 };
 

@@ -47,6 +47,7 @@
 #include <unistd.h>
 
 #include "mmc.h"
+#include "mmc_cmds.h"
 
 #define MASKTOBIT0(high)	\
 	((high >= 0) ? ((1ull << ((high) + 1ull)) - 1ull) : 0ull)
@@ -71,18 +72,6 @@ struct config {
 	char *csd;
 	char *scr;
 	char *ext_csd;
-};
-
-struct sd_cid_info {
-	unsigned int mid;
-	char oid[3];
-	char pnm[6];
-	unsigned int prv_major;
-	unsigned int prv_minor;
-	unsigned int psn;
-	unsigned int mdt_month;
-	unsigned int mdt_year;
-	unsigned int crc;
 };
 
 enum REG_TYPE {
@@ -320,7 +309,7 @@ char *read_file(char *name)
 	char *preparsed, *start = line;
 	int len;
 	FILE *f;
-
+	
 	f = fopen(name, "r");
 	if (!f) {
 		fprintf(stderr, "Could not open MMC/SD file '%s'.\n", name);
@@ -2303,10 +2292,11 @@ err:
 	return ret;
 }
 
-int process_cid(char *dir)
+int process_cid(char *dir, CIDInfo *cid_info)
 {
 	char *type = NULL, *cid = NULL;
 	int ret = 0;
+	struct config *config = malloc(sizeof(*config));
 
 	if (chdir(dir) < 0) {
 		fprintf(stderr,
@@ -2320,12 +2310,20 @@ int process_cid(char *dir)
 			"Could not read card interface type in directory '%s'.\n",dir);
 		return -1;
 	}
-
+	
 	if (strcmp(type, "MMC") && strcmp(type, "SD")) {
 		fprintf(stderr, "Unknown type: '%s'\n", type);
 		ret = -1;
 		goto err;
 	}
+	else{
+		cid_info->type = type;
+	}
+
+	if(strcmp(type, "SD")==0)
+		config->bus = SD;
+	else
+		config->bus = MMC;
 
 	cid = read_file("cid");
 	if (!cid) {
@@ -2334,23 +2332,32 @@ int process_cid(char *dir)
 		ret = -1;
 		goto err;
 	}
-	
-	struct sd_cid_info *cid_info = malloc(sizeof(*cid_info));
 
-	parse_bin(cid, "8u16a40a4u4u32u4r8u4u7u1r",
-		&cid_info->mid, &cid_info->oid[0], &cid_info->pnm[0], &cid_info->prv_major, &cid_info->prv_minor, &cid_info->psn,
-		&cid_info->mdt_year, &cid_info->mdt_month, &cid_info->crc);
+	if(config->bus == SD)
+	{
+		parse_bin(cid, "8u16a40a4u4u32u4r8u4u7u1r",
+			&cid_info->mid, &cid_info->sd_oid[0], &cid_info->pnm[0], &cid_info->prv_major, &cid_info->prv_minor, &cid_info->psn,
+			&cid_info->mdt_year, &cid_info->mdt_month, &cid_info->crc);
 
-	cid_info->oid[2] = '\0';
-	cid_info->pnm[5] = '\0';
-	printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
+		cid_info->manufacturer = get_manufacturer(config, cid_info->mid);
+		cid_info->sd_oid[2] = '\0';
+		cid_info->pnm[5] = '\0';
+	}
+	else //MMC
+	{
+		parse_bin(cid, "8u6r2u8u48a4u4u32u4u4u7u1r",
+			&cid_info->mid, &cid_info->cbx, &cid_info->mmc_oid, &cid_info->pnm[0], &cid_info->prv_major, &cid_info->prv_minor, &cid_info->psn,
+			&cid_info->mdt_year, &cid_info->mdt_month, &cid_info->crc);
+
+		cid_info->manufacturer = get_manufacturer(config, cid_info->mid);
+		cid_info->pnm[6] = '\0';
+	}
 	return 1;
-	free(cid_info);
 
 err:
 	free(cid);
 	free(type);
-
+	
 	return ret;
 }
 
