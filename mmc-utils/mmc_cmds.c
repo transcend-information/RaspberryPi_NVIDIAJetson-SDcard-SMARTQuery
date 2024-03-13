@@ -3346,7 +3346,7 @@ int show_CID_info(int nargs, char **argv)
 	printf("type:\t\t\t%s",cid_info->type);
 
 	char value[64];
-	sprintf(value, "Manufacturer ID:\t%s", cid_info->manufacturer);
+	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
 	printf("\n%s", value);
 	if(strcmp(cid_info->type,"SD") == 0 )
 		sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
