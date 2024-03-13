@@ -73,6 +73,12 @@ Usage
    
 ```
  sudo ./mmc health /dev/mmcblk0
+```
+ 
+8. Get CID information (verbose) by following command.
+   
+```
+ sudo ./mmc cid info /sys/block/mmcblk0/device
 ``` 
 
 Command Execution
@@ -85,6 +91,10 @@ Command Execution
 
 3. To show card life(Heath)</br></br>
 ![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
+
+4. To show cid info life</br></br>
+![CIDInfo](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/cid_info.png)
+
 
 Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
 ![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.PNG)
