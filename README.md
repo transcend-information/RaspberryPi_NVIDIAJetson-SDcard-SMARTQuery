@@ -87,13 +87,13 @@ Command Execution
 ![Buffer](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/smtbuffer.png)
 
 2. To show SMART info</br></br>
-![SMART](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/smart.png)
+![SMART](smart.png)
 
 3. To show card life(Heath)</br></br>
 ![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
 
 4. To show cid info life</br></br>
-![CIDInfo](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/cid_info.png)
+![CIDInfo](cid_info.png)
 
 
 Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
