@@ -84,17 +84,17 @@ Usage
 Command Execution
 -------------------------
 1. To dump SMART raw data</br></br>
-![Buffer](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/smtbuffer.png)
+![Buffer](smtbuffer.png)
 
 2. To show SMART info</br></br>
 ![SMART](smart.png)
 
 3. To show card life(Heath)</br></br>
-![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
+![Heath](health.png)
 
 4. To show cid info life</br></br>
 ![CIDInfo](cid_info.png)
 
 
 Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
-![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.PNG)
+![sdsmart](sdsmart.PNG)
