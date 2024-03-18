@@ -3348,17 +3348,17 @@ int show_CID_info(int nargs, char **argv)
 	char value[64];
 	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
 	printf("\n%s", value);
-	if(strcmp(cid_info->type,"SD") == 0 )
-		sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
-	else
-		sprintf(value, "OEM/Applicateion ID:\t%d", cid_info->mmc_oid);
-	printf("\n%s", value);
+	// if(strcmp(cid_info->type,"SD") == 0 )
+	// 	sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
+	// else
+	// 	sprintf(value, "OEM/Applicateion ID:\t%d", cid_info->mmc_oid);
+	// printf("\n%s", value);
 	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
 	printf("\n%s", value);
 	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
 	printf("\n%s", value);
-	sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
-	printf("\n%s", value);
+	// sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
+	// printf("\n%s", value);
 	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
 	printf("\n%s", value);
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
