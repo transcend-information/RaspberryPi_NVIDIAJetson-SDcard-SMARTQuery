@@ -75,7 +75,7 @@ Usage
  sudo ./mmc health /dev/mmcblk0
 ```
  
-8. Get CID information (verbose) by following command.
+8. Get CID information by following command.
    
 ```
  sudo ./mmc cid info /sys/block/mmcblk0/device
@@ -92,7 +92,7 @@ Command Execution
 3. To show card life(Heath)</br></br>
 ![Heath](health.png)
 
-4. To show cid info life</br></br>
+4. To show CID info</br></br>
 ![CIDInfo](cid_info.png)
 
 
