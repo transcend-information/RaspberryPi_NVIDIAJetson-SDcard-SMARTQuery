@@ -41,7 +41,7 @@ Usage
 1. Download the code by following command with terminal.
    
 ```
- git clone https://kernel.googlesource.com/pub/scm/linux/kernel/git/cjb/mmc-utils-old
+ git clone https://kernel.googlesource.com/pub/scm/utils/mmc/mmc-utils
 ```
 
 2. Update the 4 files in mmc-utils [folder](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/tree/main/mmc-utils) to the corresponding files.
@@ -73,18 +73,28 @@ Usage
    
 ```
  sudo ./mmc health /dev/mmcblk0
+```
+ 
+8. Get CID information by following command.
+   
+```
+ sudo ./mmc cid info /sys/block/mmcblk0/device
 ``` 
 
 Command Execution
 -------------------------
 1. To dump SMART raw data</br></br>
-![Buffer](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/smtbuffer.png)
+![Buffer](smtbuffer.png)
 
 2. To show SMART info</br></br>
-![SMART](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/smart.png)
+![SMART](smart.png)
 
 3. To show card life(Heath)</br></br>
-![Heath](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/health.png)
+![Heath](health.png)
+
+4. To show CID info</br></br>
+![CIDInfo](cid_info.png)
+
 
 Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
-![sdsmart](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/blob/main/sdsmart.PNG)
+![sdsmart](sdsmart.PNG)
