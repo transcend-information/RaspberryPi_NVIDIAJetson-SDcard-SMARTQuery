@@ -54,17 +54,17 @@ int do_alt_boot_op(int nargs, char **argv);
 
 /* CID */
 typedef struct cid_info {
-	unsigned int mid;
-	char sd_oid[3];
-	unsigned int mmc_oid;
-	char pnm[7];
-	unsigned int prv_major;
-	unsigned int prv_minor;
-	unsigned int psn;
-	unsigned int mdt_month;
-	unsigned int mdt_year;
-	unsigned int crc;
-	unsigned int cbx;//MMC specific
+	unsigned int mid;			// Manufacturer ID
+	char sd_oid[3];				// OEM/Application ID
+	unsigned int mmc_oid; 		// OEM/Application ID
+	char pnm[7];				// Product Name
+	unsigned int prv_major;		// Product Revision
+	unsigned int prv_minor;		// Product Revision
+	unsigned int psn;			// Serial Number
+	unsigned int mdt_month;		// Manufacture Date Code
+	unsigned int mdt_year;		// Manufacture Date Code
+	unsigned int crc;			// CRC7 checksum
+	unsigned int cbx;			// MMC specific
 	char *manufacturer;
 	char *type;
 }CIDInfo;
