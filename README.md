@@ -78,7 +78,7 @@ Usage
 8. Get CID information by following command.
    
 ```
- sudo ./mmc cid info /sys/block/mmcblk0/device
+ sudo ./mmc cidinfo /sys/block/mmcblk0/device
 ``` 
 
 Command Execution
@@ -93,7 +93,7 @@ Command Execution
 ![Heath](health.png)
 
 4. To show CID info</br></br>
-![CIDInfo](cid_info.png)
+![CIDInfo](cidinfo.png)
 
 
 Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
