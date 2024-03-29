@@ -29,10 +29,14 @@
 #include <stdint.h>
 #include <assert.h>
 #include <linux/fs.h> /* for BLKGETSIZE */
+
 #include "mmc.h"
 #include "mmc_cmds.h"
 #include "3rdparty/hmac_sha/hmac_sha2.h"
 
+#ifndef MMC_IOC_MULTI_CMD
+#error "mmc-utils needs MMC_IOC_MULTI_CMD support (added in kernel v4.4)"
+#endif
 
 #ifndef offsetof
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
@@ -54,6 +58,10 @@
 #define WPTYPE_PWRON 2
 #define WPTYPE_PERM 3
 
+static inline __u32 per_byte_htole32(__u8 *arr)
+{
+	return arr[0] | arr[1] << 8 | arr[2] << 16 | arr[3] << 24;
+}
 
 int read_extcsd(int fd, __u8 *ext_csd)
 {
@@ -76,19 +84,24 @@ int read_extcsd(int fd, __u8 *ext_csd)
 	return ret;
 }
 
-int write_extcsd_value(int fd, __u8 index, __u8 value)
+static void fill_switch_cmd(struct mmc_ioc_cmd *cmd, __u8 index, __u8 value)
+{
+	cmd->opcode = MMC_SWITCH;
+	cmd->write_flag = 1;
+	cmd->arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) | (index << 16) |
+		   (value << 8) | EXT_CSD_CMD_SET_NORMAL;
+	cmd->flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
+}
+
+int write_extcsd_value(int fd, __u8 index, __u8 value, unsigned int timeout_ms)
 {
 	int ret = 0;
-	struct mmc_ioc_cmd idata;
+	struct mmc_ioc_cmd idata = {};
 
-	memset(&idata, 0, sizeof(idata));
-	idata.write_flag = 1;
-	idata.opcode = MMC_SWITCH;
-	idata.arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
-			(index << 16) |
-			(value << 8) |
-			EXT_CSD_CMD_SET_NORMAL;
-	idata.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
+	fill_switch_cmd(&idata, index, value);
+
+	/* Kernel will set cmd_timeout_ms if 0 is set */
+	idata.cmd_timeout_ms = timeout_ms;
 
 	ret = ioctl(fd, MMC_IOC_CMD, &idata);
 	if (ret)
@@ -202,11 +215,19 @@ static void print_writeprotect_boot_status(__u8 *ext_csd)
 		else
 			printf("possible\n");
 
-		printf(" ro lock status: ");
-		if (reg & EXT_CSD_BOOT_WP_B_PWR_WP_EN)
-			printf("locked until next power on\n");
-		else if (reg & EXT_CSD_BOOT_WP_B_PERM_WP_EN)
+		reg = ext_csd[EXT_CSD_BOOT_WP_STATUS];
+		printf(" partition 0 ro lock status: ");
+		if (reg & EXT_CSD_BOOT_WP_S_AREA_0_PERM)
 			printf("locked permanently\n");
+		else if (reg & EXT_CSD_BOOT_WP_S_AREA_0_PWR)
+			printf("locked until next power on\n");
+		else
+			printf("not locked\n");
+		printf(" partition 1 ro lock status: ");
+		if (reg & EXT_CSD_BOOT_WP_S_AREA_1_PERM)
+			printf("locked permanently\n");
+		else if (reg & EXT_CSD_BOOT_WP_S_AREA_1_PWR)
+			printf("locked until next power on\n");
 		else
 			printf("not locked\n");
 	}
@@ -252,6 +273,7 @@ int do_writeprotect_boot_get(int nargs, char **argv)
 
 	print_writeprotect_boot_status(ext_csd);
 
+	close(fd);
 	return ret;
 }
 
@@ -260,18 +282,42 @@ int do_writeprotect_boot_set(int nargs, char **argv)
 	__u8 ext_csd[512], value;
 	int fd, ret;
 	char *device;
+	char *end;
+	int argi = 1;
+	int permanent = 0;
+	int partition = -1;
 
-	if (nargs != 2) {
-		fprintf(stderr, "Usage: mmc writeprotect boot set </path/to/mmcblkX>\n");
+#ifdef DANGEROUS_COMMANDS_ENABLED
+	if (!strcmp(argv[argi], "-p")){
+		permanent = 1;
+		argi++;
+	}
+#endif
+
+	if (nargs < 1 + argi ||  nargs > 2 + argi) {
+		fprintf(stderr, "Usage: mmc writeprotect boot set "
+#ifdef DANGEROUS_COMMANDS_ENABLED
+			"[-p] "
+#endif
+			"</path/to/mmcblkX> [0|1]\n");
 		exit(1);
 	}
 
-	device = argv[1];
+	device = argv[argi++];
 
 	fd = open(device, O_RDWR);
 	if (fd < 0) {
 		perror("open");
 		exit(1);
+	}
+
+	if (nargs == 1 + argi) {
+		partition = strtoul(argv[argi], &end, 0);
+		if (*end != '\0' || !(partition == 0 || partition == 1)) {
+			fprintf(stderr, "Invalid partition number (must be 0 or 1): %s\n",
+				argv[argi]);
+			exit(1);
+		}
 	}
 
 	ret = read_extcsd(fd, ext_csd);
@@ -280,9 +326,35 @@ int do_writeprotect_boot_set(int nargs, char **argv)
 		exit(1);
 	}
 
-	value = ext_csd[EXT_CSD_BOOT_WP] |
-		EXT_CSD_BOOT_WP_B_PWR_WP_EN;
-	ret = write_extcsd_value(fd, EXT_CSD_BOOT_WP, value);
+	value = ext_csd[EXT_CSD_BOOT_WP];
+	/*
+	 * If permanent protection is already on for one partition and we're
+	 * trying to enable power-reset protection for the other we need to make
+	 * sure the selection bit for permanent protection still points to the
+	 * former or we'll accidentally permanently protect the latter.
+	 */
+	if ((value & EXT_CSD_BOOT_WP_B_PERM_WP_EN) && !permanent) {
+		if (ext_csd[EXT_CSD_BOOT_WP_STATUS] &
+		    EXT_CSD_BOOT_WP_S_AREA_1_PERM) {
+			value |= EXT_CSD_BOOT_WP_B_PERM_WP_SEC_SEL;
+			if (partition != 1)
+				partition = 0;
+		} else {
+			/* PERM_WP_SEC_SEL cleared -> pointing to partition 0 */
+			if (partition != 0)
+				partition = 1;
+		}
+	}
+	if (partition != -1) {
+		value |= EXT_CSD_BOOT_WP_B_SEC_WP_SEL;
+		if (partition == 1)
+			value |= permanent ? EXT_CSD_BOOT_WP_B_PERM_WP_SEC_SEL
+					   : EXT_CSD_BOOT_WP_B_PWR_WP_SEC_SEL;
+	}
+	value |= permanent ? EXT_CSD_BOOT_WP_B_PERM_WP_EN
+			   : EXT_CSD_BOOT_WP_B_PWR_WP_EN;
+
+	ret = write_extcsd_value(fd, EXT_CSD_BOOT_WP, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n",
@@ -290,6 +362,7 @@ int do_writeprotect_boot_set(int nargs, char **argv)
 		exit(1);
 	}
 
+	close(fd);
 	return ret;
 }
 
@@ -378,6 +451,7 @@ int do_writeprotect_user_get(int nargs, char **argv)
 	if (last_wpblk != (x + y - 1))
 		print_wp_status(wp_sizeblks, last_wpblk, cnt - 1, last_prot);
 
+	close(fd);
 	return ret;
 }
 
@@ -447,7 +521,7 @@ int do_writeprotect_user_set(int nargs, char **argv)
 			break;
 		}
 		if (user_wp != ext_csd[EXT_CSD_USER_WP]) {
-			ret = write_extcsd_value(fd, EXT_CSD_USER_WP, user_wp);
+			ret = write_extcsd_value(fd, EXT_CSD_USER_WP, user_wp, 0);
 			if (ret) {
 				fprintf(stderr, "Error setting EXT_CSD\n");
 				exit(1);
@@ -465,7 +539,7 @@ int do_writeprotect_user_set(int nargs, char **argv)
 	}
 	if (wptype != WPTYPE_NONE) {
 		ret = write_extcsd_value(fd, EXT_CSD_USER_WP,
-					ext_csd[EXT_CSD_USER_WP]);
+				ext_csd[EXT_CSD_USER_WP], 0);
 		if (ret) {
 			fprintf(stderr, "Error restoring EXT_CSD\n");
 			exit(1);
@@ -510,7 +584,7 @@ int do_disable_512B_emulation(int nargs, char **argv)
 
 	if (native_sector_size && !data_sector_size &&
 	   (wr_rel_param & EN_REL_WR)) {
-		ret = write_extcsd_value(fd, EXT_CSD_USE_NATIVE_SECTOR, 1);
+		ret = write_extcsd_value(fd, EXT_CSD_USE_NATIVE_SECTOR, 1, 0);
 
 		if (ret) {
 			fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
@@ -524,6 +598,7 @@ int do_disable_512B_emulation(int nargs, char **argv)
 		printf("MMC does not support disabling 512B emulation mode.\n");
 	}
 
+	close(fd);
 	return ret;
 }
 
@@ -588,13 +663,14 @@ int do_write_boot_en(int nargs, char **argv)
 	else
 		value &= ~EXT_CSD_PART_CONFIG_ACC_ACK;
 
-	ret = write_extcsd_value(fd, EXT_CSD_PART_CONFIG, value);
+	ret = write_extcsd_value(fd, EXT_CSD_PART_CONFIG, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n",
 			value, EXT_CSD_PART_CONFIG, device);
 		exit(1);
 	}
+	close(fd);
 	return ret;
 }
 
@@ -657,7 +733,7 @@ int do_boot_bus_conditions_set(int nargs, char **argv)
 	printf("Changing ext_csd[BOOT_BUS_CONDITIONS] from 0x%02x to 0x%02x\n",
 		ext_csd[EXT_CSD_BOOT_BUS_CONDITIONS], value);
 
-	ret = write_extcsd_value(fd, EXT_CSD_BOOT_BUS_CONDITIONS, value);
+	ret = write_extcsd_value(fd, EXT_CSD_BOOT_BUS_CONDITIONS, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n",
@@ -708,7 +784,7 @@ int do_hwreset(int value, int nargs, char **argv)
 		exit(1);
 	}
 
-	ret = write_extcsd_value(fd, EXT_CSD_RST_N_FUNCTION, value);
+	ret = write_extcsd_value(fd, EXT_CSD_RST_N_FUNCTION, value, 0);
 	if (ret) {
 		fprintf(stderr,
 			"Could not write 0x%02x to EXT_CSD[%d] in %s\n",
@@ -716,6 +792,7 @@ int do_hwreset(int value, int nargs, char **argv)
 		exit(1);
 	}
 
+	close(fd);
 	return ret;
 }
 
@@ -734,13 +811,15 @@ int do_write_bkops_en(int nargs, char **argv)
 	__u8 ext_csd[512], value = 0;
 	int fd, ret;
 	char *device;
+	char *en_type;
 
-	if (nargs != 2) {
-	       fprintf(stderr, "Usage: mmc bkops enable </path/to/mmcblkX>\n");
-	       exit(1);
+	if (nargs != 3) {
+		fprintf(stderr, "Usage: mmc bkops_en <auto|manual> </path/to/mmcblkX>\n");
+		exit(1);
 	}
 
-	device = argv[1];
+	en_type = argv[1];
+	device = argv[2];
 
 	fd = open(device, O_RDWR);
 	if (fd < 0) {
@@ -754,18 +833,26 @@ int do_write_bkops_en(int nargs, char **argv)
 		exit(1);
 	}
 
-	if (!(ext_csd[EXT_CSD_BKOPS_SUPPORT] & 0x1)) {
-		fprintf(stderr, "%s doesn't support BKOPS\n", device);
+	if (strcmp(en_type, "auto") == 0) {
+		if (ext_csd[EXT_CSD_REV] < EXT_CSD_REV_V5_0) {
+			fprintf(stderr, "%s doesn't support AUTO_EN in the BKOPS_EN register\n", device);
+			exit(1);
+		}
+		ret = write_extcsd_value(fd, EXT_CSD_BKOPS_EN, BKOPS_AUTO_ENABLE, 0);
+	} else if (strcmp(en_type, "manual") == 0) {
+		ret = write_extcsd_value(fd, EXT_CSD_BKOPS_EN, BKOPS_MAN_ENABLE, 0);
+	} else {
+		fprintf(stderr, "%s invalid mode for BKOPS_EN requested: %s. Valid options: auto or manual\n", en_type, device);
 		exit(1);
 	}
 
-	ret = write_extcsd_value(fd, EXT_CSD_BKOPS_EN, BKOPS_ENABLE);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
 			value, EXT_CSD_BKOPS_EN, device);
 		exit(1);
 	}
 
+	close(fd);
 	return ret;
 }
 
@@ -774,6 +861,8 @@ int do_status_get(int nargs, char **argv)
 	__u32 response;
 	int fd, ret;
 	char *device;
+	const char *str;
+	__u8 state;
 
 	if (nargs != 2) {
 		fprintf(stderr, "Usage: mmc status get </path/to/mmcblkX>\n");
@@ -796,6 +885,90 @@ int do_status_get(int nargs, char **argv)
 
 	printf("SEND_STATUS response: 0x%08x\n", response);
 
+	if (response & R1_OUT_OF_RANGE)
+		printf("ERROR: ADDRESS_OUT_OF_RANGE\n");
+	if (response & R1_ADDRESS_ERROR)
+		printf("ERROR: ADDRESS_MISALIGN\n");
+	if (response & R1_BLOCK_LEN_ERROR)
+		printf("ERROR: BLOCK_LEN_ERROR\n");
+	if (response & R1_ERASE_SEQ_ERROR)
+		printf("ERROR: ERASE_SEQ_ERROR\n");
+	if (response & R1_ERASE_PARAM)
+		printf("ERROR: ERASE_PARAM_ERROR\n");
+	if (response & R1_WP_VIOLATION)
+		printf("ERROR: WP_VOILATION\n");
+	if (response & R1_CARD_IS_LOCKED)
+		printf("STATUS: DEVICE_IS_LOCKED\n");
+	if (response & R1_LOCK_UNLOCK_FAILED)
+		printf("ERROR: LOCK_UNLOCK_IS_FAILED\n");
+	if (response & R1_COM_CRC_ERROR)
+		printf("ERROR: COM_CRC_ERROR\n");
+	if (response & R1_ILLEGAL_COMMAND)
+		printf("ERROR: ILLEGAL_COMMAND\n");
+	if (response & R1_CARD_ECC_FAILED)
+		printf("ERROR: DEVICE_ECC_FAILED\n");
+	if (response & R1_CC_ERROR)
+		printf("ERROR: CC_ERROR\n");
+	if (response & R1_ERROR)
+		printf("ERROR: ERROR\n");
+	if (response & R1_CID_CSD_OVERWRITE)
+		printf("ERROR: CID/CSD OVERWRITE\n");
+	if (response & R1_WP_ERASE_SKIP)
+		printf("ERROR: WP_ERASE_SKIP\n");
+	if (response & R1_ERASE_RESET)
+		printf("ERROR: ERASE_RESET\n");
+
+	state = (response >> 9) & 0xF;
+	switch (state) {
+	case 0:
+		str = "IDLE";
+		break;
+	case 1:
+		str = "READY";
+		break;
+	case 2:
+		str = "IDENT";
+		break;
+	case 3:
+		str = "STDBY";
+		break;
+	case 4:
+		str = "TRANS";
+		break;
+	case 5:
+		str = "DATA";
+		break;
+	case 6:
+		str = "RCV";
+		break;
+	case 7:
+		str = "PRG";
+		break;
+	case 8:
+		str = "DIS";
+		break;
+	case 9:
+		str = "BTST";
+		break;
+	case 10:
+		str = "SLP";
+		break;
+	default:
+		printf("Attention : Device state is INVALID: Kindly check the Response\n");
+		goto out_free;
+	}
+
+	printf("DEVICE STATE: %s\n", str);
+	if (response & R1_READY_FOR_DATA)
+		printf("STATUS: READY_FOR_DATA\n");
+	if (response & R1_SWITCH_ERROR)
+		printf("ERROR: SWITCH_ERROR\n");
+	if (response & R1_EXCEPTION_EVENT)
+		printf("STATUS: EXCEPTION_EVENT\n");  /* Check EXCEPTION_EVENTS_STATUS fields for further actions */
+	if (response & R1_APP_CMD)
+		printf("STATUS: APP_CMD\n");
+out_free:
+	close(fd);
 	return ret;
 }
 
@@ -842,7 +1015,7 @@ int set_partitioning_setting_completed(int dry_run, const char * const device,
 	}
 
 	fprintf(stderr, "setting OTP PARTITION_SETTING_COMPLETED!\n");
-	ret = write_extcsd_value(fd, EXT_CSD_PARTITION_SETTING_COMPLETED, 0x1);
+	ret = write_extcsd_value(fd, EXT_CSD_PARTITION_SETTING_COMPLETED, 0x1, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x1 to "
 			"EXT_CSD[%d] in %s\n",
@@ -1028,7 +1201,7 @@ int do_create_gp_partition(int nargs, char **argv)
 	gp_size_mult = (length_kib + align/2l) / align;
 
 	/* set EXT_CSD_ERASE_GROUP_DEF bit 0 */
-	ret = write_extcsd_value(fd, EXT_CSD_ERASE_GROUP_DEF, 0x1);
+	ret = write_extcsd_value(fd, EXT_CSD_ERASE_GROUP_DEF, 0x1, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x1 to EXT_CSD[%d] in %s\n",
 			EXT_CSD_ERASE_GROUP_DEF, device);
@@ -1037,7 +1210,7 @@ int do_create_gp_partition(int nargs, char **argv)
 
 	value = (gp_size_mult >> 16) & 0xff;
 	address = EXT_CSD_GP_SIZE_MULT_1_2 + (partition - 1) * 3;
-	ret = write_extcsd_value(fd, address, value);
+	ret = write_extcsd_value(fd, address, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
 			value, address, device);
@@ -1045,7 +1218,7 @@ int do_create_gp_partition(int nargs, char **argv)
 	}
 	value = (gp_size_mult >> 8) & 0xff;
 	address = EXT_CSD_GP_SIZE_MULT_1_1 + (partition - 1) * 3;
-	ret = write_extcsd_value(fd, address, value);
+	ret = write_extcsd_value(fd, address, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
 			value, address, device);
@@ -1053,7 +1226,7 @@ int do_create_gp_partition(int nargs, char **argv)
 	}
 	value = gp_size_mult & 0xff;
 	address = EXT_CSD_GP_SIZE_MULT_1_0 + (partition - 1) * 3;
-	ret = write_extcsd_value(fd, address, value);
+	ret = write_extcsd_value(fd, address, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
 			value, address, device);
@@ -1066,7 +1239,7 @@ int do_create_gp_partition(int nargs, char **argv)
 	else
 		value &= ~(1 << partition);
 
-	ret = write_extcsd_value(fd, EXT_CSD_PARTITIONS_ATTRIBUTE, value);
+	ret = write_extcsd_value(fd, EXT_CSD_PARTITIONS_ATTRIBUTE, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write EXT_CSD_ENH_%x to EXT_CSD[%d] in %s\n",
 			partition, EXT_CSD_PARTITIONS_ATTRIBUTE, device);
@@ -1080,7 +1253,7 @@ int do_create_gp_partition(int nargs, char **argv)
 	else
 		value &= (0xF << (4 * ((partition % 2))));
 
-	ret = write_extcsd_value(fd, address, value);
+	ret = write_extcsd_value(fd, address, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%x to EXT_CSD[%d] in %s\n",
 			value, address, device);
@@ -1157,7 +1330,7 @@ int do_enh_area_set(int nargs, char **argv)
 	enh_start_addr *= align;
 
 	/* set EXT_CSD_ERASE_GROUP_DEF bit 0 */
-	ret = write_extcsd_value(fd, EXT_CSD_ERASE_GROUP_DEF, 0x1);
+	ret = write_extcsd_value(fd, EXT_CSD_ERASE_GROUP_DEF, 0x1, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x1 to "
 			"EXT_CSD[%d] in %s\n",
@@ -1167,7 +1340,7 @@ int do_enh_area_set(int nargs, char **argv)
 
 	/* write to ENH_START_ADDR and ENH_SIZE_MULT and PARTITIONS_ATTRIBUTE's ENH_USR bit */
 	value = (enh_start_addr >> 24) & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_3, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_3, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1175,7 +1348,7 @@ int do_enh_area_set(int nargs, char **argv)
 		exit(1);
 	}
 	value = (enh_start_addr >> 16) & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_2, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_2, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1183,7 +1356,7 @@ int do_enh_area_set(int nargs, char **argv)
 		exit(1);
 	}
 	value = (enh_start_addr >> 8) & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_1, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_1, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1191,7 +1364,7 @@ int do_enh_area_set(int nargs, char **argv)
 		exit(1);
 	}
 	value = enh_start_addr & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_0, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_START_ADDR_0, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1200,7 +1373,7 @@ int do_enh_area_set(int nargs, char **argv)
 	}
 
 	value = (enh_size_mult >> 16) & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_SIZE_MULT_2, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_SIZE_MULT_2, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1208,7 +1381,7 @@ int do_enh_area_set(int nargs, char **argv)
 		exit(1);
 	}
 	value = (enh_size_mult >> 8) & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_SIZE_MULT_1, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_SIZE_MULT_1, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1216,7 +1389,7 @@ int do_enh_area_set(int nargs, char **argv)
 		exit(1);
 	}
 	value = enh_size_mult & 0xff;
-	ret = write_extcsd_value(fd, EXT_CSD_ENH_SIZE_MULT_0, value);
+	ret = write_extcsd_value(fd, EXT_CSD_ENH_SIZE_MULT_0, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to "
 			"EXT_CSD[%d] in %s\n", value,
@@ -1224,7 +1397,7 @@ int do_enh_area_set(int nargs, char **argv)
 		exit(1);
 	}
 	value = ext_csd[EXT_CSD_PARTITIONS_ATTRIBUTE] | EXT_CSD_ENH_USR;
-	ret = write_extcsd_value(fd, EXT_CSD_PARTITIONS_ATTRIBUTE, value);
+	ret = write_extcsd_value(fd, EXT_CSD_PARTITIONS_ATTRIBUTE, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write EXT_CSD_ENH_USR to "
 			"EXT_CSD[%d] in %s\n",
@@ -1295,7 +1468,7 @@ int do_write_reliability_set(int nargs, char **argv)
 	}
 
 	value = ext_csd[EXT_CSD_WR_REL_SET] | (1<<partition);
-	ret = write_extcsd_value(fd, EXT_CSD_WR_REL_SET, value);
+	ret = write_extcsd_value(fd, EXT_CSD_WR_REL_SET, value, 0);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
 				value, EXT_CSD_WR_REL_SET, device);
@@ -1419,8 +1592,8 @@ int do_read_extcsd(int nargs, char **argv)
 		printf("Power off notification [POWER_OFF_LONG_TIME: 0x%02x]\n",
 			ext_csd[247]);
 		printf("Cache Size [CACHE_SIZE] is %d KiB\n",
-			ext_csd[249] << 0 | (ext_csd[250] << 8) |
-			(ext_csd[251] << 16) | (ext_csd[252] << 24));
+			(ext_csd[249] << 0 | (ext_csd[250] << 8) |
+			(ext_csd[251] << 16) | (ext_csd[252] << 24)) / 8);
 	}
 
 	/* A441: Reserved [501:247]
@@ -1537,6 +1710,8 @@ int do_read_extcsd(int nargs, char **argv)
 	/* DEVICE_TYPE in A45, CARD_TYPE in A441 */
 	reg = ext_csd[196];
 	printf("Card Type [CARD_TYPE: 0x%02x]\n", reg);
+	if (reg & 0x80) printf(" HS400 Dual Data Rate eMMC @200MHz 1.2VI/O\n");
+	if (reg & 0x40) printf(" HS400 Dual Data Rate eMMC @200MHz 1.8VI/O\n");
 	if (reg & 0x20) printf(" HS200 Single Data Rate eMMC @200MHz 1.2VI/O\n");
 	if (reg & 0x10) printf(" HS200 Single Data Rate eMMC @200MHz 1.8VI/O\n");
 	if (reg & 0x08) printf(" HS Dual Data Rate eMMC @52MHz 1.2VI/O\n");
@@ -1551,6 +1726,9 @@ int do_read_extcsd(int nargs, char **argv)
 	printf("Power class [POWER_CLASS: 0x%02x]\n", ext_csd[187]);
 	printf("High-speed interface timing [HS_TIMING: 0x%02x]\n",
 		ext_csd[185]);
+	if (ext_csd_rev >= 8)
+		printf("Enhanced Strobe mode [STROBE_SUPPORT: 0x%02x]\n",
+			ext_csd[184]);
 	/* bus_width: ext_csd[183] not readable */
 	printf("Erased memory content [ERASED_MEM_CONT: 0x%02x]\n",
 		ext_csd[181]);
@@ -1615,11 +1793,11 @@ int do_read_extcsd(int nargs, char **argv)
 		printf("Write reliability setting register"
 			" [WR_REL_SET]: 0x%02x\n", reg);
 
-		printf(" user area: %s\n", reg & (1<<0) ? reliable : fast);
+		printf(" user area: %s\n", (reg & (1<<0)) ? reliable : fast);
 		int i;
 		for (i = 1; i <= 4; i++) {
 			printf(" partition %d: %s\n", i,
-				reg & (1<<i) ? reliable : fast);
+				(reg & (1<<i)) ? reliable : fast);
 		}
 
 		reg = ext_csd[EXT_CSD_WR_REL_PARAM];
@@ -1754,12 +1932,13 @@ int do_read_extcsd(int nargs, char **argv)
 		printf("Control to turn the Cache ON/OFF"
 			" [CACHE_CTRL]: 0x%02x\n", ext_csd[33]);
 		/* flush_cache ext_csd[32] not readable */
-		/*Reserved [31:0] */
+		printf("Control to turn the Cache Barrier ON/OFF"
+			" [BARRIER_CTRL]: 0x%02x\n", ext_csd[31]);
+		/*Reserved [30:0] */
 	}
 
 	if (ext_csd_rev >= 7) {
-		printf("eMMC Firmware Version: %s\n",
-			(char*)&ext_csd[EXT_CSD_FIRMWARE_VERSION]);
+		printf("eMMC Firmware Version: %.8s\n", (char*)&ext_csd[EXT_CSD_FIRMWARE_VERSION]);
 		printf("eMMC Life Time Estimation A [EXT_CSD_DEVICE_LIFE_TIME_EST_TYP_A]: 0x%02x\n",
 			ext_csd[EXT_CSD_DEVICE_LIFE_TIME_EST_TYP_A]);
 		printf("eMMC Life Time Estimation B [EXT_CSD_DEVICE_LIFE_TIME_EST_TYP_B]: 0x%02x\n",
@@ -1807,8 +1986,42 @@ int do_read_extcsd(int nargs, char **argv)
 		       (ext_csd[EXT_CSD_CMDQ_DEPTH] & 0x1f) + 1);
 		printf("Command Enabled [CMDQ_MODE_EN]: 0x%02x\n",
 		       ext_csd[EXT_CSD_CMDQ_MODE_EN]);
+		printf("Note: CMDQ_MODE_EN may not indicate the runtime CMDQ ON or OFF.\n"
+		       "Please check sysfs node '/sys/devices/.../mmc_host/mmcX/mmcX:XXXX/cmdq_en'\n");
 	}
 out_free:
+	return ret;
+}
+
+int do_write_extcsd(int nargs, char **argv)
+{
+	int fd, ret;
+	int offset, value;
+	char *device;
+
+	if (nargs != 4) {
+		fprintf(stderr, "Usage: mmc extcsd write <offset> <value> </path/to/mmcblkX>\n");
+		exit(1);
+	}
+
+	offset = strtol(argv[1], NULL, 0);
+	value  = strtol(argv[2], NULL, 0);
+	device = argv[3];
+
+	fd = open(device, O_RDWR);
+	if (fd < 0) {
+		perror("open");
+		exit(1);
+	}
+
+	ret = write_extcsd_value(fd, offset, value, 0);
+	if (ret) {
+		fprintf(stderr,
+			"Could not write 0x%02x to EXT_CSD[%d] in %s\n",
+			value, offset, device);
+		exit(1);
+	}
+
 	return ret;
 }
 
@@ -1816,11 +2029,15 @@ int do_sanitize(int nargs, char **argv)
 {
 	int fd, ret;
 	char *device;
+	unsigned int timeout = 0;
 
-	if (nargs != 2) {
-		fprintf(stderr, "Usage: mmc sanitize </path/to/mmcblkX>\n");
+	if (nargs != 2 && nargs != 3) {
+		fprintf(stderr, "Usage: mmc sanitize </path/to/mmcblkX> [timeout_in_ms]\n");
 		exit(1);
 	}
+
+	if (nargs == 3)
+		timeout = strtol(argv[2], NULL, 10);
 
 	device = argv[1];
 
@@ -1830,13 +2047,14 @@ int do_sanitize(int nargs, char **argv)
 		exit(1);
 	}
 
-	ret = write_extcsd_value(fd, EXT_CSD_SANITIZE_START, 1);
+	ret = write_extcsd_value(fd, EXT_CSD_SANITIZE_START, 1, timeout);
 	if (ret) {
 		fprintf(stderr, "Could not write 0x%02x to EXT_CSD[%d] in %s\n",
 			1, EXT_CSD_SANITIZE_START, device);
 		exit(1);
 	}
 
+	close(fd);
 	return ret;
 
 }
@@ -1852,7 +2070,7 @@ int do_sanitize(int nargs, char **argv)
 			}										\
 			else if (r > 0)							\
 				ret += r;							\
-		} while (r != 0 && (size_t)ret != nbyte);	\
+		} while (r != 0 && (size_t)ret < nbyte);	\
 													\
 		ret;										\
 	})
@@ -1882,11 +2100,12 @@ struct rpmb_frame {
 };
 
 static inline void set_single_cmd(struct mmc_ioc_cmd *ioc, __u32 opcode,
-				  int write_flag, unsigned int blocks)
+				  int write_flag, unsigned int blocks,
+				  __u32 arg)
 {
 	ioc->opcode = opcode;
 	ioc->write_flag = write_flag;
-	ioc->arg = 0x0;
+	ioc->arg = arg;
 	ioc->blksz = 512;
 	ioc->blocks = blocks;
 	ioc->flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
@@ -1906,23 +2125,20 @@ static int do_rpmb_op(int fd,
 					  struct rpmb_frame *frame_out,
 					  unsigned int out_cnt)
 {
-#ifndef MMC_IOC_MULTI_CMD
-	fprintf(stderr, "mmc-utils has been compiled without MMC_IOC_MULTI_CMD"
-		" support, needed by RPMB operation.\n");
-	exit(1);
-#else
 	int err;
 	u_int16_t rpmb_type;
 	struct mmc_ioc_multi_cmd *mioc;
 	struct mmc_ioc_cmd *ioc;
-	struct rpmb_frame frame_status = {0};
+	struct rpmb_frame frame_status;
+
+	memset(&frame_status, 0, sizeof(frame_status));
 
 	if (!frame_in || !frame_out || !out_cnt)
 		return -EINVAL;
 
 	/* prepare arguments for MMC_IOC_MULTI_CMD ioctl */
 	mioc = (struct mmc_ioc_multi_cmd *)
-		malloc(sizeof (struct mmc_ioc_multi_cmd) +
+		calloc(1, sizeof (struct mmc_ioc_multi_cmd) +
 		       RPMB_MULTI_CMD_MAX_CMDS * sizeof (struct mmc_ioc_cmd));
 	if (!mioc) {
 		return -ENOMEM;
@@ -1942,18 +2158,18 @@ static int do_rpmb_op(int fd,
 
 		/* Write request */
 		ioc = &mioc->cmds[0];
-		set_single_cmd(ioc, MMC_WRITE_MULTIPLE_BLOCK, (1 << 31) | 1, 1);
+		set_single_cmd(ioc, MMC_WRITE_MULTIPLE_BLOCK, (1 << 31) | 1, 1, 0);
 		mmc_ioc_cmd_set_data((*ioc), frame_in);
 
 		/* Result request */
 		ioc = &mioc->cmds[1];
 		frame_status.req_resp = htobe16(MMC_RPMB_READ_RESP);
-		set_single_cmd(ioc, MMC_WRITE_MULTIPLE_BLOCK, 1, 1);
+		set_single_cmd(ioc, MMC_WRITE_MULTIPLE_BLOCK, 1, 1, 0);
 		mmc_ioc_cmd_set_data((*ioc), &frame_status);
 
 		/* Get response */
 		ioc = &mioc->cmds[2];
-		set_single_cmd(ioc, MMC_READ_MULTIPLE_BLOCK, 0, 1);
+		set_single_cmd(ioc, MMC_READ_MULTIPLE_BLOCK, 0, 1, 0);
 		mmc_ioc_cmd_set_data((*ioc), frame_out);
 
 		break;
@@ -1969,12 +2185,12 @@ static int do_rpmb_op(int fd,
 
 		/* Read request */
 		ioc = &mioc->cmds[0];
-		set_single_cmd(ioc, MMC_WRITE_MULTIPLE_BLOCK, 1, 1);
+		set_single_cmd(ioc, MMC_WRITE_MULTIPLE_BLOCK, 1, 1, 0);
 		mmc_ioc_cmd_set_data((*ioc), frame_in);
 
 		/* Get response */
 		ioc = &mioc->cmds[1];
-		set_single_cmd(ioc, MMC_READ_MULTIPLE_BLOCK, 0, out_cnt);
+		set_single_cmd(ioc, MMC_READ_MULTIPLE_BLOCK, 0, out_cnt, 0);
 		mmc_ioc_cmd_set_data((*ioc), frame_out);
 
 		break;
@@ -1988,7 +2204,6 @@ static int do_rpmb_op(int fd,
 out:
 	free(mioc);
 	return err;
-#endif /* !MMC_IOC_MULTI_CMD */
 }
 
 int do_rpmb_write_key(int nargs, char **argv)
@@ -2067,8 +2282,10 @@ int rpmb_read_counter(int dev_fd, unsigned int *cnt)
 	}
 
 	/* Check RPMB response */
-	if (frame_out.result != 0)
+	if (frame_out.result != 0) {
+		*cnt = 0;
 		return be16toh(frame_out.result);
+	}
 
 	*cnt = be32toh(frame_out.write_counter);
 
@@ -2414,7 +2631,7 @@ int do_cache_ctrl(int value, int nargs, char **argv)
 			device);
 		exit(1);
 	}
-	ret = write_extcsd_value(fd, EXT_CSD_CACHE_CTRL, value);
+	ret = write_extcsd_value(fd, EXT_CSD_CACHE_CTRL, value, 0);
 	if (ret) {
 		fprintf(stderr,
 			"Could not write 0x%02x to EXT_CSD[%d] in %s\n",
@@ -2422,6 +2639,7 @@ int do_cache_ctrl(int value, int nargs, char **argv)
 		exit(1);
 	}
 
+	close(fd);
 	return ret;
 }
 
@@ -2435,28 +2653,196 @@ int do_cache_dis(int nargs, char **argv)
 	return do_cache_ctrl(0, nargs, argv);
 }
 
-int do_ffu(int nargs, char **argv)
+static int erase(int dev_fd, __u32 argin, __u32 start, __u32 end)
 {
-#ifndef MMC_IOC_MULTI_CMD
-	fprintf(stderr, "mmc-utils has been compiled without MMC_IOC_MULTI_CMD"
-			" support, needed by FFU.\n");
-	exit(1);
-#else
-	int dev_fd, img_fd;
-	int sect_done = 0, retry = 3, ret = -EINVAL;
-	unsigned int sect_size;
-	__u8 ext_csd[512];
-	__u8 *buf;
-	__u32 arg;
-	off_t fw_size;
-	ssize_t chunk_size;
-	char *device;
+	int ret = 0;
 	struct mmc_ioc_multi_cmd *multi_cmd;
+	__u8 ext_csd[512];
 
-	if (nargs != 3) {
-		fprintf(stderr, "Usage: ffu <image name> </path/to/mmcblkX> \n");
+
+	ret = read_extcsd(dev_fd, ext_csd);
+	if (ret) {
+		fprintf(stderr, "Could not read EXT_CSD\n");
 		exit(1);
 	}
+	if (ext_csd[EXT_CSD_ERASE_GROUP_DEF] & 0x01) {
+	  fprintf(stderr, "High Capacity Erase Unit Size=%d bytes\n" \
+                          "High Capacity Erase Timeout=%d ms\n" \
+                          "High Capacity Write Protect Group Size=%d bytes\n",
+		           ext_csd[224]*0x80000,
+		           ext_csd[223]*300,
+                           ext_csd[221]*ext_csd[224]*0x80000);
+	}
+
+	multi_cmd = calloc(1, sizeof(struct mmc_ioc_multi_cmd) +
+			   3 * sizeof(struct mmc_ioc_cmd));
+	if (!multi_cmd) {
+		perror("Failed to allocate memory");
+		return -ENOMEM;
+	}
+
+	multi_cmd->num_of_cmds = 3;
+	/* Set erase start address */
+	multi_cmd->cmds[0].opcode = MMC_ERASE_GROUP_START;
+	multi_cmd->cmds[0].arg = start;
+	multi_cmd->cmds[0].flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
+	multi_cmd->cmds[0].write_flag = 1;
+
+	/* Set erase end address */
+	multi_cmd->cmds[1].opcode = MMC_ERASE_GROUP_END;
+	multi_cmd->cmds[1].arg = end;
+	multi_cmd->cmds[1].flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
+	multi_cmd->cmds[1].write_flag = 1;
+
+	/* Send Erase Command */
+	multi_cmd->cmds[2].opcode = MMC_ERASE;
+	multi_cmd->cmds[2].arg = argin;
+	multi_cmd->cmds[2].cmd_timeout_ms = 300*255*255;
+	multi_cmd->cmds[2].flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
+	multi_cmd->cmds[2].write_flag = 1;
+
+	/* send erase cmd with multi-cmd */
+	ret = ioctl(dev_fd, MMC_IOC_MULTI_CMD, multi_cmd);
+	if (ret)
+		perror("Erase multi-cmd ioctl");
+
+	/* Does not work for SPI cards */
+	if (multi_cmd->cmds[1].response[0] & R1_ERASE_PARAM) {
+		fprintf(stderr, "Erase start response: 0x%08x\n",
+				multi_cmd->cmds[0].response[0]);
+		ret = -EIO;
+	}
+	if (multi_cmd->cmds[2].response[0] & R1_ERASE_SEQ_ERROR) {
+		fprintf(stderr, "Erase response: 0x%08x\n",
+				multi_cmd->cmds[2].response[0]);
+		ret = -EIO;
+	}
+
+	free(multi_cmd);
+	return ret;
+}
+
+int do_erase(int nargs, char **argv)
+{
+	int dev_fd, ret;
+	char *print_str;
+	__u8 ext_csd[512], checkup_mask = 0;
+	__u32 arg, start, end;
+
+	if (nargs != 5) {
+		fprintf(stderr, "Usage: erase <type> <start addr> <end addr> </path/to/mmcblkX>\n");
+		exit(1);
+	}
+
+	if (strstr(argv[2], "0x") || strstr(argv[2], "0X"))
+		start = strtol(argv[2], NULL, 16);
+	else
+		start = strtol(argv[2], NULL, 10);
+
+	if (strstr(argv[3], "0x") || strstr(argv[3], "0X"))
+		end = strtol(argv[3], NULL, 16);
+	else
+		end = strtol(argv[3], NULL, 10);
+
+	if (end < start) {
+		fprintf(stderr, "erase start [0x%08x] > erase end [0x%08x]\n",
+			start, end);
+		exit(1);
+	}
+
+	if (strcmp(argv[1], "legacy") == 0) {
+		arg = 0x00000000;
+		print_str = "Legacy Erase";
+	} else if (strcmp(argv[1], "discard") == 0) {
+		arg = 0x00000003;
+		print_str = "Discard";
+	} else if (strcmp(argv[1], "secure-erase") == 0) {
+		print_str = "Secure Erase";
+		checkup_mask = EXT_CSD_SEC_ER_EN;
+		arg = 0x80000000;
+	} else if (strcmp(argv[1], "secure-trim1") == 0) {
+		print_str = "Secure Trim Step 1";
+		checkup_mask = EXT_CSD_SEC_ER_EN | EXT_CSD_SEC_GB_CL_EN;
+		arg = 0x80000001;
+	} else if (strcmp(argv[1], "secure-trim2") == 0) {
+		print_str = "Secure Trim Step 2";
+		checkup_mask = EXT_CSD_SEC_ER_EN | EXT_CSD_SEC_GB_CL_EN;
+		arg = 0x80008000;
+	} else if (strcmp(argv[1], "trim") == 0) {
+		print_str = "Trim";
+		checkup_mask = EXT_CSD_SEC_GB_CL_EN;
+		arg = 0x00000001;
+	} else {
+		fprintf(stderr, "Unknown erase type: %s\n", argv[1]);
+		exit(1);
+	}
+
+	dev_fd = open(argv[4], O_RDWR);
+	if (dev_fd < 0) {
+		perror(argv[4]);
+		exit(1);
+	}
+
+	if (checkup_mask) {
+		ret = read_extcsd(dev_fd, ext_csd);
+		if (ret) {
+			fprintf(stderr, "Could not read EXT_CSD from %s\n",
+				argv[4]);
+			goto out;
+		}
+		if ((checkup_mask & ext_csd[EXT_CSD_SEC_FEATURE_SUPPORT]) !=
+								checkup_mask) {
+			fprintf(stderr, "%s is not supported in %s\n",
+				print_str, argv[4]);
+			ret = -ENOTSUP;
+			goto out;
+		}
+
+	}
+	printf("Executing %s from 0x%08x to 0x%08x\n", print_str, start, end);
+
+	ret = erase(dev_fd, arg, start, end);
+out:
+	printf(" %s %s!\n\n", print_str, ret ? "Failed" : "Succeed");
+	close(dev_fd);
+	return ret;
+}
+
+static void set_ffu_single_cmd(struct mmc_ioc_multi_cmd *multi_cmd,
+			       __u8 *ext_csd, unsigned int bytes, __u8 *buf,
+			       off_t offset)
+{
+	__u32 arg = per_byte_htole32(&ext_csd[EXT_CSD_FFU_ARG_0]);
+
+	/* send block count */
+	set_single_cmd(&multi_cmd->cmds[1], MMC_SET_BLOCK_COUNT, 0, 0,
+		       bytes / 512);
+	multi_cmd->cmds[1].flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_AC;
+
+	/*
+	 * send image chunk: blksz and blocks essentially do not matter, as
+	 * long as the product is fw_size, but some hosts don't handle larger
+	 * blksz well.
+	 */
+	set_single_cmd(&multi_cmd->cmds[2], MMC_WRITE_MULTIPLE_BLOCK, 1,
+		       bytes / 512, arg);
+	mmc_ioc_cmd_set_data(multi_cmd->cmds[2], buf + offset);
+}
+
+int do_ffu(int nargs, char **argv)
+{
+	int dev_fd, img_fd;
+	int retry = 3, ret = -EINVAL;
+	unsigned int sect_size;
+	__u8 ext_csd[512];
+	__u8 *buf = NULL;
+	off_t fw_size, bytes_left, off;
+	char *device;
+	struct mmc_ioc_multi_cmd *multi_cmd = NULL;
+	unsigned int default_chunk = MMC_IOC_MAX_BYTES;
+	__u32 sect_done = 0;
+
+	assert (nargs == 3 || nargs == 4);
 
 	device = argv[2];
 	dev_fd = open(device, O_RDWR);
@@ -2469,14 +2855,6 @@ int do_ffu(int nargs, char **argv)
 		perror("image open failed");
 		close(dev_fd);
 		exit(1);
-	}
-
-	buf = malloc(512);
-	multi_cmd = calloc(1, sizeof(struct mmc_ioc_multi_cmd) +
-				3 * sizeof(struct mmc_ioc_cmd));
-	if (!buf || !multi_cmd) {
-		perror("failed to allocate memory");
-		goto out;
 	}
 
 	ret = read_extcsd(dev_fd, ext_csd);
@@ -2503,96 +2881,108 @@ int do_ffu(int nargs, char **argv)
 	}
 
 	fw_size = lseek(img_fd, 0, SEEK_END);
-
 	if (fw_size == 0) {
-		fprintf(stderr, "Firmware image is empty");
+		fprintf(stderr, "Wrong firmware size");
 		goto out;
 	}
 
+	/* allocate maximum required */
+	buf = malloc(fw_size);
+	multi_cmd = calloc(1, sizeof(struct mmc_ioc_multi_cmd) +
+				4 * sizeof(struct mmc_ioc_cmd));
+	if (!buf || !multi_cmd) {
+		perror("failed to allocate memory");
+		goto out;
+	}
+
+	/* ensure fw is multiple of native sector size */
 	sect_size = (ext_csd[EXT_CSD_DATA_SECTOR_SIZE] == 0) ? 512 : 4096;
 	if (fw_size % sect_size) {
 		fprintf(stderr, "Firmware data size (%jd) is not aligned!\n", (intmax_t)fw_size);
 		goto out;
 	}
 
-	/* set CMD ARG */
-	arg = ext_csd[EXT_CSD_FFU_ARG_0] |
-		ext_csd[EXT_CSD_FFU_ARG_1] << 8 |
-		ext_csd[EXT_CSD_FFU_ARG_2] << 16 |
-		ext_csd[EXT_CSD_FFU_ARG_3] << 24;
+	if (nargs == 4) {
+		default_chunk = strtol(argv[3], NULL, 10);
+		if (default_chunk > MMC_IOC_MAX_BYTES || default_chunk % 512) {
+			fprintf(stderr, "Invalid chunk size");
+			goto out;
+		}
+	}
 
-	/* prepare multi_cmd to be sent */
-	multi_cmd->num_of_cmds = 3;
+	/* prepare multi_cmd for FFU based on cmd to be used */
+
+	multi_cmd->num_of_cmds = 4;
 
 	/* put device into ffu mode */
-	multi_cmd->cmds[0].opcode = MMC_SWITCH;
-	multi_cmd->cmds[0].arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
-			(EXT_CSD_MODE_CONFIG << 16) |
-			(EXT_CSD_FFU_MODE << 8) |
-			EXT_CSD_CMD_SET_NORMAL;
-	multi_cmd->cmds[0].flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
-	multi_cmd->cmds[0].write_flag = 1;
-
-	/* send image chunk */
-	multi_cmd->cmds[1].opcode = MMC_WRITE_BLOCK;
-	multi_cmd->cmds[1].blksz = sect_size;
-	multi_cmd->cmds[1].blocks = 1;
-	multi_cmd->cmds[1].arg = arg;
-	multi_cmd->cmds[1].flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
-	multi_cmd->cmds[1].write_flag = 1;
-	mmc_ioc_cmd_set_data(multi_cmd->cmds[1], buf);
+	fill_switch_cmd(&multi_cmd->cmds[0], EXT_CSD_MODE_CONFIG,
+			EXT_CSD_FFU_MODE);
 
 	/* return device into normal mode */
-	multi_cmd->cmds[2].opcode = MMC_SWITCH;
-	multi_cmd->cmds[2].arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
-			(EXT_CSD_MODE_CONFIG << 16) |
-			(EXT_CSD_NORMAL_MODE << 8) |
-			EXT_CSD_CMD_SET_NORMAL;
-	multi_cmd->cmds[2].flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
-	multi_cmd->cmds[2].write_flag = 1;
+	fill_switch_cmd(&multi_cmd->cmds[3], EXT_CSD_MODE_CONFIG,
+			EXT_CSD_NORMAL_MODE);
+
+	/* read firmware */
+	lseek(img_fd, 0, SEEK_SET);
+	if (read(img_fd, buf, fw_size) != fw_size) {
+		perror("Could not read the firmware file: ");
+		ret = -ENOSPC;
+		goto out;
+	}
 
 do_retry:
-	/* read firmware chunk */
-	lseek(img_fd, 0, SEEK_SET);
-	chunk_size = read(img_fd, buf, 512);
+	bytes_left = fw_size;
+	off = 0;
+	while (bytes_left) {
+		unsigned int chunk_size = bytes_left < default_chunk ?
+					  bytes_left : default_chunk;
 
-	while (chunk_size > 0) {
+		/* prepare multi_cmd for FFU based on cmd to be used */
+		set_ffu_single_cmd(multi_cmd, ext_csd, chunk_size, buf, off);
+
 		/* send ioctl with multi-cmd */
 		ret = ioctl(dev_fd, MMC_IOC_MULTI_CMD, multi_cmd);
 
 		if (ret) {
 			perror("Multi-cmd ioctl");
-			/* In case multi-cmd ioctl failed before exiting from ffu mode */
-			ioctl(dev_fd, MMC_IOC_CMD, &multi_cmd->cmds[2]);
+			/*
+			 * In case multi-cmd ioctl failed before exiting from
+			 * ffu mode
+			 */
+			ioctl(dev_fd, MMC_IOC_CMD, &multi_cmd->cmds[3]);
 			goto out;
 		}
 
-		ret = read_extcsd(dev_fd, ext_csd);
-		if (ret) {
-			fprintf(stderr, "Could not read EXT_CSD from %s\n", device);
-			goto out;
-		}
+		bytes_left -= chunk_size;
+		off += chunk_size;
+	}
 
-		/* Test if we need to restart the download */
-		sect_done = ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG_0] |
-				ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG_1] << 8 |
-				ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG_2] << 16 |
-				ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG_3] << 24;
-		/* By spec, host should re-start download from the first sector if sect_done is 0 */
-		if (sect_done == 0) {
-			if (retry > 0) {
-				retry--;
-				fprintf(stderr, "Programming failed. Retrying... (%d)\n", retry);
-				goto do_retry;
-			}
-			fprintf(stderr, "Programming failed! Aborting...\n");
-			goto out;
-		} else {
-			fprintf(stderr, "Programmed %d/%jd bytes\r", sect_done * sect_size, (intmax_t)fw_size);
-		}
+	/*
+	 * By spec - check if mode operation codes are supported in ffu features,
+	 * if not then skip checking number of sectors programmed after install
+	 */
+	if (!ext_csd[EXT_CSD_FFU_FEATURES]) {
+		fprintf(stderr, "Please reboot to complete firmware installation on %s\n", device);
+		ret = 0;
+		goto out;
+	}
 
-		/* read the next firmware chunk (if any) */
-		chunk_size = read(img_fd, buf, 512);
+	ret = read_extcsd(dev_fd, ext_csd);
+	if (ret) {
+		fprintf(stderr, "Could not read EXT_CSD from %s\n", device);
+		goto out;
+	}
+
+	/* Test if we need to restart the download */
+	sect_done = per_byte_htole32(&ext_csd[EXT_CSD_NUM_OF_FW_SEC_PROG_0]);
+	/* By spec, host should re-start download from the first sector if sect_done is 0 */
+	if (sect_done == 0) {
+		if (retry--) {
+			fprintf(stderr, "Programming failed. Retrying... (%d)\n", retry);
+			goto do_retry;
+		}
+		fprintf(stderr, "Programming failed! Aborting...\n");
+		goto out;
 	}
 
 	if ((sect_done * sect_size) == fw_size) {
@@ -2604,49 +2994,37 @@ do_retry:
 		goto out;
 	}
 
-	/* check mode operation for ffu install*/
-	if (!ext_csd[EXT_CSD_FFU_FEATURES]) {
-		fprintf(stderr, "Please reboot to complete firmware installation on %s\n", device);
+	fprintf(stderr, "Installing firmware on %s...\n", device);
+	/* Re-enter ffu mode and install the firmware */
+	multi_cmd->num_of_cmds = 2;
+
+	/* set ext_csd to install mode */
+	fill_switch_cmd(&multi_cmd->cmds[1], EXT_CSD_MODE_OPERATION_CODES,
+			EXT_CSD_FFU_INSTALL);
+
+	/* send ioctl with multi-cmd */
+	ret = ioctl(dev_fd, MMC_IOC_MULTI_CMD, multi_cmd);
+
+	if (ret) {
+		perror("Multi-cmd ioctl failed setting install mode");
+		/* In case multi-cmd ioctl failed before exiting from ffu mode */
+		ioctl(dev_fd, MMC_IOC_CMD, &multi_cmd->cmds[3]);
+		goto out;
+	}
+
+	ret = read_extcsd(dev_fd, ext_csd);
+	if (ret) {
+		fprintf(stderr, "Could not read EXT_CSD from %s\n", device);
+		goto out;
+	}
+
+	/* return status */
+	ret = ext_csd[EXT_CSD_FFU_STATUS];
+	if (ret) {
+		fprintf(stderr, "%s: error %d during FFU install:\n", device, ret);
+		goto out;
 	} else {
-		fprintf(stderr, "Installing firmware on %s...\n", device);
-		/* Re-enter ffu mode and install the firmware */
-		multi_cmd->num_of_cmds = 2;
-
-		/* set ext_csd to install mode */
-		multi_cmd->cmds[1].opcode = MMC_SWITCH;
-		multi_cmd->cmds[1].blksz = 0;
-		multi_cmd->cmds[1].blocks = 0;
-		multi_cmd->cmds[1].arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
-				(EXT_CSD_MODE_OPERATION_CODES << 16) |
-				(EXT_CSD_FFU_INSTALL << 8) |
-				EXT_CSD_CMD_SET_NORMAL;
-		multi_cmd->cmds[1].flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
-		multi_cmd->cmds[1].write_flag = 1;
-
-		/* send ioctl with multi-cmd */
-		ret = ioctl(dev_fd, MMC_IOC_MULTI_CMD, multi_cmd);
-
-		if (ret) {
-			perror("Multi-cmd ioctl failed setting install mode");
-			/* In case multi-cmd ioctl failed before exiting from ffu mode */
-			ioctl(dev_fd, MMC_IOC_CMD, &multi_cmd->cmds[2]);
-			goto out;
-		}
-
-		ret = read_extcsd(dev_fd, ext_csd);
-		if (ret) {
-			fprintf(stderr, "Could not read EXT_CSD from %s\n", device);
-			goto out;
-		}
-
-		/* return status */
-		ret = ext_csd[EXT_CSD_FFU_STATUS];
-		if (ret) {
-			fprintf(stderr, "%s: error %d during FFU install:\n", device, ret);
-			goto out;
-		} else {
-			fprintf(stderr, "FFU finished successfully\n");
-		}
+		fprintf(stderr, "FFU finished successfully\n");
 	}
 
 out:
@@ -2655,9 +3033,218 @@ out:
 	close(img_fd);
 	close(dev_fd);
 	return ret;
-#endif
 }
 
+int do_general_cmd_read(int nargs, char **argv)
+{
+	int dev_fd;
+	char *device;
+	char *endptr;
+	__u8 buf[512];
+	__u32 arg = 0x01;
+	int ret = -EINVAL, i;
+	struct mmc_ioc_cmd idata;
+
+	if (nargs != 2 && nargs != 3) {
+		fprintf(stderr, "Usage: gen_cmd read </path/to/mmcblkX> [arg]\n");
+		exit(1);
+	}
+
+	device = argv[1];
+	dev_fd = open(device, O_RDWR);
+	if (dev_fd < 0) {
+		perror("device open failed");
+		exit(1);
+	}
+
+	/* arg is specified */
+	if (nargs == 3) {
+		arg = strtol(argv[2], &endptr, 16);
+		if (errno != 0 || *endptr != '\0' || !(arg & 0x1)) {
+			fprintf(stderr, "Wrong ARG, it should be Hex number and bit0 must be 1\n");
+			goto out;
+		}
+	}
+
+	memset(&idata, 0, sizeof(idata));
+	idata.write_flag = 0;
+	idata.opcode = MMC_GEN_CMD;
+	idata.arg = arg;
+	idata.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
+	idata.blksz = 512;
+	idata.blocks = 1;
+	mmc_ioc_cmd_set_data(idata, buf);
+
+	ret = ioctl(dev_fd, MMC_IOC_CMD, &idata);
+	if (ret) {
+		perror("ioctl");
+		goto out;
+	}
+
+	printf("Data:\n");
+	for (i = 0; i < 512; i++) {
+		printf("%2x ", buf[i]);
+		if ((i + 1) % 16 == 0)
+			printf("\n");
+	}
+out:
+	close(dev_fd);
+	return ret;
+}
+
+static void issue_cmd0(char *device, __u32 arg)
+{
+	struct mmc_ioc_cmd idata;
+	int fd;
+
+	fd = open(device, O_RDWR);
+	if (fd < 0) {
+		perror("open");
+		exit(1);
+	}
+
+	memset(&idata, 0, sizeof(idata));
+	idata.opcode = MMC_GO_IDLE_STATE;
+	idata.arg = arg;
+	idata.flags = MMC_RSP_NONE | MMC_CMD_BC;
+
+	/* No need to check for error, it is expected */
+	ioctl(fd, MMC_IOC_CMD, &idata);
+	close(fd);
+}
+
+int do_softreset(int nargs, char **argv)
+{
+	char *device;
+
+	if (nargs != 2) {
+		fprintf(stderr, "Usage: mmc softreset </path/to/mmcblkX>\n");
+		exit(1);
+	}
+
+	device = argv[1];
+	issue_cmd0(device, MMC_GO_IDLE_STATE_ARG);
+
+	return 0;
+}
+
+int do_preidle(int nargs, char **argv)
+{
+	char *device;
+
+	if (nargs != 2) {
+		fprintf(stderr, "Usage: mmc preidle </path/to/mmcblkX>\n");
+		exit(1);
+	}
+
+	device = argv[1];
+	issue_cmd0(device, MMC_GO_PRE_IDLE_STATE_ARG);
+
+	return 0;
+}
+
+int do_alt_boot_op(int nargs, char **argv)
+{
+	int fd, ret, boot_data_fd;
+	char *device, *boot_data_file;
+	struct mmc_ioc_multi_cmd *mioc;
+	__u8 ext_csd[512];
+	__u8 *boot_buf;
+	unsigned int boot_blocks, ext_csd_boot_size;
+
+	if (nargs != 3) {
+		fprintf(stderr, "Usage: mmc boot_op <boot_data_file> </path/to/mmcblkX>\n");
+		exit(1);
+	}
+	boot_data_file = argv[1];
+	device = argv[2];
+
+	fd = open(device, O_RDWR);
+	if (fd < 0) {
+		perror("open device");
+		exit(1);
+	}
+
+	ret = read_extcsd(fd, ext_csd);
+	if (ret) {
+		perror("read extcsd");
+		goto dev_fd_close;
+	}
+	if (!(ext_csd[EXT_CSD_BOOT_INFO] & EXT_CSD_BOOT_INFO_ALT)) {
+		ret = -EINVAL;
+		perror("Card does not support alternative boot mode");
+		goto dev_fd_close;
+	}
+	if (ext_csd[EXT_CSD_PART_CONFIG] & EXT_CSD_PART_CONFIG_ACC_ACK) {
+		ret = -EINVAL;
+		perror("Boot Ack must not be enabled");
+		goto dev_fd_close;
+	}
+	ext_csd_boot_size = ext_csd[EXT_CSD_BOOT_MULT] * 128 * 1024;
+	boot_blocks = ext_csd_boot_size / 512;
+	if (ext_csd_boot_size > MMC_IOC_MAX_BYTES) {
+		printf("Boot partition size is bigger than IOCTL limit, limiting to 512K\n");
+		boot_blocks = MMC_IOC_MAX_BYTES / 512;
+	}
+
+	boot_data_fd = open(boot_data_file, O_WRONLY | O_CREAT, 0644);
+	if (boot_data_fd < 0) {
+		perror("open boot data file");
+		ret = 1;
+		goto boot_data_close;
+	}
+
+	boot_buf = calloc(1, sizeof(__u8) * boot_blocks * 512);
+	mioc = calloc(1, sizeof(struct mmc_ioc_multi_cmd) +
+			   2 * sizeof(struct mmc_ioc_cmd));
+	if (!mioc || !boot_buf) {
+		perror("Failed to allocate memory");
+		ret = -ENOMEM;
+		goto alloced_error;
+	}
+
+	mioc->num_of_cmds = 2;
+	mioc->cmds[0].opcode = MMC_GO_IDLE_STATE;
+	mioc->cmds[0].arg = MMC_GO_PRE_IDLE_STATE_ARG;
+	mioc->cmds[0].flags = MMC_RSP_NONE | MMC_CMD_AC;
+	mioc->cmds[0].write_flag = 0;
+
+	mioc->cmds[1].opcode = MMC_GO_IDLE_STATE;
+	mioc->cmds[1].arg = MMC_BOOT_INITIATION_ARG;
+	mioc->cmds[1].flags = MMC_RSP_NONE | MMC_CMD_ADTC;
+	mioc->cmds[1].write_flag = 0;
+	mioc->cmds[1].blksz = 512;
+	mioc->cmds[1].blocks = boot_blocks;
+	/* Access time of boot part differs wildly, spec mandates 1s */
+	mioc->cmds[1].data_timeout_ns = 2 * 1000 * 1000 * 1000;
+	mmc_ioc_cmd_set_data(mioc->cmds[1], boot_buf);
+
+	ret = ioctl(fd, MMC_IOC_MULTI_CMD, mioc);
+	if (ret) {
+		perror("multi-cmd ioctl error\n");
+		goto alloced_error;
+	}
+
+	ret = DO_IO(write, boot_data_fd, boot_buf, boot_blocks * 512);
+	if (ret < 0) {
+		perror("Write error\n");
+		goto alloced_error;
+	}
+	ret = 0;
+
+alloced_error:
+	if (mioc)
+		free(mioc);
+	if (boot_buf)
+		free(boot_buf);
+boot_data_close:
+	close(boot_data_fd);
+dev_fd_close:
+	close(fd);
+	if (ret)
+		exit(1);
+	return 0;
+}
 int do_SMART_buffer_dump(int nargs, char **argv)/* Show SMART 512-byte buffer by using CMD56 */
 {
 	int argCmd56 = 0x110005F9;
@@ -2693,10 +3280,92 @@ int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/
 	}
 	ret = CMD56_data_in(fd, argCmd56 , data_buff);
 	if (ret) {
-	fprintf(stderr, "CMD56 function fail, %s\n", device);
-	exit(1);
+		fprintf(stderr, "CMD56 function fail, %s\n", device);
+		exit(1);
 	}
+				
+	if(system("df / -h -T") == -1)
+		printf("Error to get df info\n");	
+
+	FILE *ptr = NULL;
+	char readbuf[256];
+	char *udevadm_cmd = "udevadm info --query=all --name=";
+	char cmd[100];
+	char *sysfs_path = malloc(100);
+	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
+	strcpy(cmd,udevadm_cmd);
+	strcat(cmd,device);
+	if((ptr = popen(cmd, "r")) != NULL)
+	{
+		while(fgets(readbuf,256,ptr) != NULL)
+		{			
+			if(strstr(readbuf, "P:") != NULL)
+			{
+				int n = strlen("P: ");
+				strncpy(sysfs_path, readbuf+n, strlen(readbuf)-n-1);
+				break;
+			}
+		}
+		pclose(ptr);
+	}
+
+	cmd[0] = '\0';
+	strcpy(cmd, "/sys");
+	strcat(cmd, sysfs_path);
+	strcat(cmd, "/device");
+	if(process_cid(cmd, cid_info) != 1)
+		printf("get cid info fail.\n");
+	else
+		printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
+	
 	is_transcend_card(data_buff, TYPE_SMART); /* Only support microSDXC430T and microSDXC450I */
+	return ret;
+}
+
+int show_CID_info(int nargs, char **argv)
+{
+	int ret;
+
+	static const char *months[] = {
+		"jan", "feb", "mar", "apr", "may", "jun",
+		"jul", "aug", "sep", "oct", "nov", "dec",
+		"invalid0", "invalid1", "invalid2", "invalid3",
+	};
+
+	char *device;
+	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
+	device = argv[nargs-1];
+
+	if(process_cid(device, cid_info) != 1)
+	{
+		printf("get cid info fail.\n");
+		exit(1);
+	}
+	printf("type:\t\t\t%s",cid_info->type);
+
+	char value[64];
+	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
+	printf("\n%s", value);
+	// if(strcmp(cid_info->type,"SD") == 0 )
+	// 	sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
+	// else
+	// 	sprintf(value, "OEM/Applicateion ID:\t%d", cid_info->mmc_oid);
+	// printf("\n%s", value);
+	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
+	printf("\n%s", value);
+	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
+	printf("\n%s", value);
+	// sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
+	// printf("\n%s", value);
+	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
+	printf("\n%s", value);
+	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
+	printf("\n%s\n", value);
+
+	ret = 1;
+	
 	return ret;
 }
 
@@ -2765,7 +3434,7 @@ void is_transcend_card(char *block_data_buff, char function)
 		if(strstr(controllerChar, "SM2706"))
 		{
 			if(function == TYPE_SMART)
-			{
+			{				
 				parsing_SMART_info(block_data_buff);
 			}
 			else if(function == TYPE_HEALTH)
@@ -2786,9 +3455,12 @@ void is_transcend_card(char *block_data_buff, char function)
 }
 
 void parsing_SMART_info(char *block_data_buff) /* parsing SMART 512-byte array */ 
-{
+{	
 	char value[64];
 	
+	sprintf(value, "==========SMART Info==========");
+	printf("\n%s", value);
+
 	char *card_marker = grabString(block_data_buff, 0, 16);
 	sprintf(value, "Card Marker(0x00):\t\t\t%s", card_marker);
 	printf("\n%s", value);
