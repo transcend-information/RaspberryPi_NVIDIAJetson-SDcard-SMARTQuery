@@ -258,3 +258,6 @@
 #define SD_SMT_BLOCK_SIZE 512 /* block size of smart data*/
 #define TYPE_SMART (0x01)
 #define TYPE_HEALTH (0x02)
+
+
+#define SD_CID_BLOCK_SIZE 16 /* block size of smart data*/

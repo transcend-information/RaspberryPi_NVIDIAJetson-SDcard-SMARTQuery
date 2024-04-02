@@ -3375,32 +3375,40 @@ int show_product_id(char *device)
 	FILE *ptr = NULL;
 	char readbuf[256];
 	char *udevadm_cmd = "udevadm info --query=all --name=";
-	char cmd[150]={0};
-	char *sysfs_path = calloc(120, sizeof(char));
+	char cmd[50]={0};
+	char dir[150]={0};
+	char sysfs_path[150] = {0};
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
 
-	sysfs_path[0] = '\0';
-	strcpy(cmd,udevadm_cmd);
-	strcat(cmd,device);
-	if((ptr = popen(cmd, "r")) != NULL)
+	if(strstr(device, "sd") != NULL)
 	{
-		while(fgets(readbuf,256,ptr) != NULL)
-		{			
-			if(strstr(readbuf, "P:") != NULL)
-			{
-				int n = strlen("P: ");
-				strncpy(sysfs_path, readbuf+n, strlen(readbuf)-n-1);
-				break;
+		strcpy(dir, device);
+	}
+	else
+	{	
+		strcpy(cmd,udevadm_cmd);
+		strcat(cmd,device);
+		if((ptr = popen(cmd, "r")) != NULL)
+		{
+			while(fgets(readbuf,256,ptr) != NULL)
+			{			
+				if(strstr(readbuf, "P: ") != NULL)
+				{
+					int n = strlen("P: ");
+					strncpy(sysfs_path, readbuf+n, strlen(readbuf)-n-1);
+					break;
+				}
 			}
+			pclose(ptr);
 		}
-		pclose(ptr);
+
+		strcpy(dir, "/sys");
+		strcat(dir, sysfs_path);
+		strcat(dir, "/device");
 	}
 
-	cmd[0] = '\0';
-	strcpy(cmd, "/sys");
-	strcat(cmd, sysfs_path);
-	strcat(cmd, "/device");
-	if(process_cid(cmd, cid_info) != 1)
+
+	if(process_cid(dir, cid_info) != 1)
 	{
 		printf("get cid info fail.\n");
 		ret = 1;
@@ -3410,7 +3418,7 @@ int show_product_id(char *device)
 		printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
 		ret = 0;
 	}
-	free(sysfs_path);
+
 	return ret;
 }
 
@@ -3535,6 +3543,44 @@ int SCSI_CMD56(int *fd, char *block_data_buff)
     sg_io_hdr_t io_hdr;
     memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
           
+    io_hdr.interface_id = 'S';
+    io_hdr.cmd_len = sizeof(CmdBlk16);
+    io_hdr.cmdp = CmdBlk16;
+    io_hdr.mx_sb_len = sizeof(sense_b);
+    io_hdr.sbp = sense_b;
+    io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+    io_hdr.dxfer_len = block_size;
+	io_hdr.dxferp = block_data_buff;
+		
+    io_hdr.timeout = 20000;
+    if(ioctl(*fd, SG_IO, &io_hdr) < 0)
+    {
+        printf("ioctl fail\n");
+        ret = 1;
+    }
+    else
+    {
+        ret = 0;
+    }
+
+	return ret;
+}
+
+int SCSI_CMD13(int *fd, char *block_data_buff)
+{
+	int ret=0;
+
+	int block_size = SD_CID_BLOCK_SIZE;
+	// char data_buff[SD_CID_BLOCK_SIZE];
+	memset(block_data_buff, 0, sizeof(__u8) * SD_CID_BLOCK_SIZE);
+
+
+    unsigned char sense_b[32];
+    unsigned char CmdBlk16[16] = 
+    { 0xD1, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x6a, 0x00, 0x00, 0x00, 0x00, 0x00};
+    sg_io_hdr_t io_hdr;
+    memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
+
     io_hdr.interface_id = 'S';
     io_hdr.cmd_len = sizeof(CmdBlk16);
     io_hdr.cmdp = CmdBlk16;

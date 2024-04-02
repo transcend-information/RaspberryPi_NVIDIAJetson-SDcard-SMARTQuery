@@ -46,6 +46,9 @@
 #include <string.h>
 #include <unistd.h>
 
+
+#include <fcntl.h>
+
 #include "mmc.h"
 #include "mmc_cmds.h"
 
@@ -2298,17 +2301,57 @@ int process_cid(char *dir, CIDInfo *cid_info)
 	int ret = 0;
 	struct config *config = malloc(sizeof(*config));
 
-	if (chdir(dir) < 0) {
-		fprintf(stderr,
-			"MMC/SD information directory '%s' does not exist.\n",dir);
-		return -1;
-	}
+	if(strstr(dir, "/sys"))
+	{	
+		if (chdir(dir) < 0) {
+			fprintf(stderr,
+				"MMC/SD information directory '%s' does not exist.\n",dir);
+			return -1;
+		}
 
-	type = read_file("type");
-	if (!type) {
-		fprintf(stderr,
-			"Could not read card interface type in directory '%s'.\n",dir);
-		return -1;
+		type = read_file("type");
+		if (!type) {
+			fprintf(stderr,
+				"Could not read card interface type in directory '%s'.\n",dir);
+			return -1;
+		}
+
+		cid = read_file("cid");
+		if (!cid) {
+			fprintf(stderr,
+				"Could not read card identity in directory '%s'.\n",dir);
+			ret = -1;
+			goto err;
+		}
+	}
+	else
+	{
+		type = "SD";
+		int fd, ret;
+		char cid_stream[SD_CID_BLOCK_SIZE];
+		char cid_hex[32];
+		fd = open(dir, O_RDWR);
+		if (fd < 0) {
+			perror("open");
+			exit(1);
+		}
+		ret = SCSI_CMD13(&fd, cid_stream);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", dir);
+			exit(1);
+		}
+		int offset = 0;
+		for(int i=1 ; i<SD_CID_BLOCK_SIZE ; i++)
+		{
+			offset += sprintf(cid_hex+offset, "%x", cid_stream[i]);
+		}
+		cid = cid_hex;
+		if (!cid) {
+			fprintf(stderr,
+				"Could not read card identity in directory '%s'.\n",dir);
+			ret = -1;
+			goto err;
+		}
 	}
 	
 	if (strcmp(type, "MMC") && strcmp(type, "SD")) {
@@ -2324,14 +2367,7 @@ int process_cid(char *dir, CIDInfo *cid_info)
 		config->bus = SD;
 	else
 		config->bus = MMC;
-
-	cid = read_file("cid");
-	if (!cid) {
-		fprintf(stderr,
-			"Could not read card identity in directory '%s'.\n",dir);
-		ret = -1;
-		goto err;
-	}
+	
 
 	if(config->bus == SD)
 	{
