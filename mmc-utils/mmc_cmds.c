@@ -3610,9 +3610,9 @@ int is_transcend_reader(char *device)
 	char *TS_VID = "8564";
 	char readbuf[256];
 	char *udevadm_cmd = "udevadm info --query=property -n ";
-	char *grep_cmd = " | grep ID_VENDOR_ID";
+	char *grep_cmd = " | grep -E 'ID_USB_VENDOR_ID|ID_VENDOR_ID'";
 	char cmd[100];
-	char *vid = malloc(30);
+	char *vid = malloc(10);
 
 	strcpy(cmd,udevadm_cmd);
 	strcat(cmd,device);
@@ -3622,13 +3622,14 @@ int is_transcend_reader(char *device)
 		while(fgets(readbuf,256,ptr) != NULL)
 		{	
 			strncpy(vid, readbuf, strlen(readbuf)-1);
-			break;	
+			if(strstr(vid, TS_VID) != NULL) // vid is 8564
+			{
+				ret=0;		
+				break;
+			}			
 		}
 		pclose(ptr);
 	}
-	
-	if(strstr(vid, TS_VID) != NULL) // vid is 8564
-		ret=0;
 
 	return ret;
 }
