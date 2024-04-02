@@ -3612,7 +3612,7 @@ int is_transcend_reader(char *device)
 	char *udevadm_cmd = "udevadm info --query=property -n ";
 	char *grep_cmd = " | grep -E 'ID_USB_VENDOR_ID|ID_VENDOR_ID'";
 	char cmd[100];
-	char *vid = malloc(10);
+	char *vid = malloc(25);
 
 	strcpy(cmd,udevadm_cmd);
 	strcat(cmd,device);
