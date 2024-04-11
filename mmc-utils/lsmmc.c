@@ -2335,7 +2335,7 @@ int process_cid(char *dir, CIDInfo *cid_info)
 			perror("open");
 			exit(1);
 		}
-		ret = SCSI_CMD13(&fd, cid_stream);
+		ret = SCSI_CMD10(&fd, cid_stream);
 		if (ret) {
 			fprintf(stderr, "CMD56 function fail, %s\n", dir);
 			exit(1);

@@ -77,7 +77,7 @@ int show_df_info(char *device);
 int show_product_id(char *device);
 int is_transcend_reader(char *device);
 int SCSI_CMD56(int *fd, char *block_data_buff);
-int SCSI_CMD13(int *fd, char *block_data_buff);
+int SCSI_CMD10(int *fd, char *block_data_buff);
 int show_CID_info(int nargs, char **argv);
 int process_cid(char *dir, CIDInfo *cid_info);//Get cid info
 int CMD56_data_in(int fd, int argCmd56, char *block_data_buff);

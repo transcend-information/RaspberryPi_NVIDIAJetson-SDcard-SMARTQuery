@@ -3566,7 +3566,7 @@ int SCSI_CMD56(int *fd, char *block_data_buff)
 	return ret;
 }
 
-int SCSI_CMD13(int *fd, char *block_data_buff)
+int SCSI_CMD10(int *fd, char *block_data_buff)
 {
 	int ret=0;
 
