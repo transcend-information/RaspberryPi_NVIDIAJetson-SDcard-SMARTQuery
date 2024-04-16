@@ -3821,8 +3821,12 @@ void parsing_SMART_info(char *block_data_buff) /* parsing SMART 512-byte array *
 	
 	char *sd_firmware_version = grabString(block_data_buff, 128, 6);
 	sprintf(value, "SD Firmware Version(0x80):\t\t%s", sd_firmware_version);
-	printf("\n%s\n", value);
+	printf("\n%s", value);
 	free(sd_firmware_version);
+
+	double abnormal_power_detect = hexArrToDec(block_data_buff, 164, 4);
+	sprintf(value, "Abnormal Power Detect(0xA4):\t\t%.0f", abnormal_power_detect);
+	printf("\n%s\n", value);
 	
 	return;
 }
