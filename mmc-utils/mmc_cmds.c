@@ -3538,8 +3538,7 @@ int SCSI_CMD56(int *fd, char *block_data_buff)
 	memset(block_data_buff, 0, sizeof(__u8) * SD_SMT_BLOCK_SIZE);
 
     unsigned char sense_b[32];
-    unsigned char CmdBlk16[16] = 
-    { 0xD1, 0x00, 0x38, 0x11, 0x00, 0x05, 0xf9, 0x00, 0x02, 0x00, 0x48, 0x00, 0x00, 0x00, 0x00, 0x00};
+    unsigned char CmdBlk16[16] = RDF5CMD56;
     sg_io_hdr_t io_hdr;
     memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
           
@@ -3576,8 +3575,7 @@ int SCSI_CMD10(int *fd, char *block_data_buff)
 
 
     unsigned char sense_b[32];
-    unsigned char CmdBlk16[16] = 
-    { 0xD1, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x6a, 0x00, 0x00, 0x00, 0x00, 0x00};
+    unsigned char CmdBlk16[16] = RDF5CMD10;
     sg_io_hdr_t io_hdr;
     memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
 
