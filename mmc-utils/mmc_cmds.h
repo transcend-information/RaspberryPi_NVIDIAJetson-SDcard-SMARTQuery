@@ -79,12 +79,15 @@ int is_transcend_reader(char *device);
 int SCSI_CMD56(int *fd, char *block_data_buff);
 int SCSI_CMD10(int *fd, char *block_data_buff);
 int show_CID_info(int nargs, char **argv);
-int process_cid(char *dir, CIDInfo *cid_info);//Get cid info
+int show_SCSI_CID(int nargs, char **argv);
+int process_cid(char *cid, char *type, CIDInfo *cid_info);//decode cid
 int CMD56_data_in(int fd, int argCmd56, char *block_data_buff);
 void dump_smart_data(char *block_data_buff);
 void is_transcend_card(char *block_data_buff, char function);
 void parsing_SMART_info(char *block_data_buff);
 void parsing_Health_info(char *block_data_buff);
+char* get_cid(char *dir, char *type);//Get cid info
+char *read_file(char *name);
 char *grabString(char* data, int start_pos, int length);
 char *grabHex(char* data, int start_pos, int length);
 double hexArrToDec(char *data, int start_pos, int length);

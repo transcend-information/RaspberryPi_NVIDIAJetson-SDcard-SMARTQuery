@@ -2295,38 +2295,23 @@ err:
 	return ret;
 }
 
-int process_cid(char *dir, CIDInfo *cid_info)
+char* get_cid(char *dir, char *type)
 {
-	char *type = NULL, *cid = NULL;
-	int ret = 0;
-	struct config *config = malloc(sizeof(*config));
-
-	if(strstr(dir, "/sys"))
+	char *cid = NULL;
+	if(strstr(type, "MMC"))
 	{	
 		if (chdir(dir) < 0) {
 			fprintf(stderr,
 				"MMC/SD information directory '%s' does not exist.\n",dir);
-			return -1;
 		}
-
-		type = read_file("type");
-		if (!type) {
-			fprintf(stderr,
-				"Could not read card interface type in directory '%s'.\n",dir);
-			return -1;
-		}
-
 		cid = read_file("cid");
 		if (!cid) {
 			fprintf(stderr,
 				"Could not read card identity in directory '%s'.\n",dir);
-			ret = -1;
-			goto err;
 		}
 	}
 	else
 	{
-		type = "SD";
 		int fd, ret;
 		char cid_stream[SD_CID_BLOCK_SIZE];
 		char cid_hex[32];
@@ -2343,16 +2328,23 @@ int process_cid(char *dir, CIDInfo *cid_info)
 		int offset = 0;
 		for(int i=1 ; i<SD_CID_BLOCK_SIZE ; i++)
 		{
-			offset += sprintf(cid_hex+offset, "%x", cid_stream[i]);
+			offset += sprintf(cid_hex+offset, "%02x", cid_stream[i]);
 		}
-		cid = cid_hex;
+		cid = (char *)malloc(strlen(cid_hex)+1);
+		sprintf(cid, "%s", cid_hex);
+
 		if (!cid) {
 			fprintf(stderr,
 				"Could not read card identity in directory '%s'.\n",dir);
-			ret = -1;
-			goto err;
 		}
 	}
+	return cid;
+}
+
+int process_cid(char *cid, char *type, CIDInfo *cid_info)
+{
+	int ret = 0;
+	struct config *config = malloc(sizeof(*config));
 	
 	if (strcmp(type, "MMC") && strcmp(type, "SD")) {
 		fprintf(stderr, "Unknown type: '%s'\n", type);

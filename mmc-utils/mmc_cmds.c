@@ -3378,11 +3378,15 @@ int show_product_id(char *device)
 	char cmd[50]={0};
 	char dir[150]={0};
 	char sysfs_path[150] = {0};
+	char *cid;
+	char *type = NULL;
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
 
 	if(strstr(device, "sd") != NULL)
 	{
 		strcpy(dir, device);
+		type = "SD";
+		cid = get_cid(dir, "SD");
 	}
 	else
 	{	
@@ -3405,10 +3409,25 @@ int show_product_id(char *device)
 		strcpy(dir, "/sys");
 		strcat(dir, sysfs_path);
 		strcat(dir, "/device");
+
+		if (chdir(dir) < 0) {
+			fprintf(stderr,
+				"MMC/SD information directory '%s' does not exist.\n",dir);
+			return -1;
+		}
+
+		type = read_file("type");
+		cid = get_cid(dir, "MMC");
 	}
 
 
-	if(process_cid(dir, cid_info) != 1)
+	if(strcmp(cid, "") == 0)
+	{
+		printf("get cid info fail.\n");
+		ret = 1;
+		return ret;
+	}
+	if(process_cid(cid, type, cid_info) != 1)
 	{
 		printf("get cid info fail.\n");
 		ret = 1;
@@ -3418,7 +3437,6 @@ int show_product_id(char *device)
 		printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
 		ret = 0;
 	}
-
 	return ret;
 }
 
@@ -3433,11 +3451,21 @@ int show_CID_info(int nargs, char **argv)
 	};
 
 	char *device;
+	char *type, *cid;
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
 
 	device = argv[nargs-1];
 
-	if(process_cid(device, cid_info) != 1)
+	if (chdir(device) < 0) {
+			fprintf(stderr,
+				"MMC/SD information directory '%s' does not exist.\n",device);
+			return -1;
+	}
+
+	type = read_file("type");
+
+	cid = get_cid(device, "MMC");
+	if(process_cid(cid, type, cid_info) != 1)
 	{
 		printf("get cid info fail.\n");
 		exit(1);
@@ -3458,6 +3486,48 @@ int show_CID_info(int nargs, char **argv)
 	printf("\n%s", value);
 	// sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
 	// printf("\n%s", value);
+	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
+	printf("\n%s", value);
+	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
+	printf("\n%s\n", value);
+
+	ret = 1;
+	
+	return ret;
+}
+
+int show_SCSI_CID(int nargs, char **argv)
+{
+	int ret;
+
+	static const char *months[] = {
+		"jan", "feb", "mar", "apr", "may", "jun",
+		"jul", "aug", "sep", "oct", "nov", "dec",
+		"invalid0", "invalid1", "invalid2", "invalid3",
+	};
+
+	char *device;
+	char *type, *cid;
+	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
+	device = argv[nargs-1];
+
+	type = "SD";
+	cid = get_cid(device,"SCSI");
+	if(process_cid(cid, type, cid_info) != 1)
+	{
+		printf("get cid info fail.\n");
+		exit(1);
+	}
+	printf("type:\t\t\t%s",cid_info->type);
+
+	char value[64];
+	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
+	printf("\n%s", value);
+	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
+	printf("\n%s", value);
+	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
+	printf("\n%s", value);
 	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
 	printf("\n%s", value);
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
