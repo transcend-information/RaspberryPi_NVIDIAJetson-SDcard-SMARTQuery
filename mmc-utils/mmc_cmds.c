@@ -3427,7 +3427,7 @@ int show_product_id(char *device)
 		ret = 1;
 		return ret;
 	}
-	if(process_cid(cid, type, cid_info) != 1)
+	if(process_cid(cid, type, cid_info))
 	{
 		printf("get cid info fail.\n");
 		ret = 1;
@@ -3465,7 +3465,7 @@ int show_CID_info(int nargs, char **argv)
 	type = read_file("type");
 
 	cid = get_cid(device, "MMC");
-	if(process_cid(cid, type, cid_info) != 1)
+	if(process_cid(cid, type, cid_info))
 	{
 		printf("get cid info fail.\n");
 		exit(1);
@@ -3514,7 +3514,7 @@ int show_SCSI_CID(int nargs, char **argv)
 
 	type = "SD";
 	cid = get_cid(device,"SCSI");
-	if(process_cid(cid, type, cid_info) != 1)
+	if(process_cid(cid, type, cid_info))
 	{
 		printf("get cid info fail.\n");
 		exit(1);

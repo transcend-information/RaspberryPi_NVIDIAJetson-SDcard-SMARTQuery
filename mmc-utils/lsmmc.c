@@ -2343,13 +2343,11 @@ char* get_cid(char *dir, char *type)
 
 int process_cid(char *cid, char *type, CIDInfo *cid_info)
 {
-	int ret = 0;
 	struct config *config = malloc(sizeof(*config));
 	
 	if (strcmp(type, "MMC") && strcmp(type, "SD")) {
 		fprintf(stderr, "Unknown type: '%s'\n", type);
-		ret = -1;
-		goto err;
+		return -1;
 	}
 	else{
 		cid_info->type = type;
@@ -2380,13 +2378,7 @@ int process_cid(char *cid, char *type, CIDInfo *cid_info)
 		cid_info->manufacturer = get_manufacturer(config, cid_info->mid);
 		cid_info->pnm[6] = '\0';
 	}
-	return 1;
-
-err:
-	free(cid);
-	free(type);
-	
-	return ret;
+	return 0;
 }
 
 static int do_read_reg(int argc, char **argv, enum REG_TYPE reg)
