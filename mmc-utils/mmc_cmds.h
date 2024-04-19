@@ -79,7 +79,6 @@ int is_transcend_reader(char *device);
 int SCSI_CMD56(int *fd, char *block_data_buff);
 int SCSI_CMD10(int *fd, char *block_data_buff);
 int show_CID_info(int nargs, char **argv);
-int show_SCSI_CID(int nargs, char **argv);
 int process_cid(char *cid, char *type, CIDInfo *cid_info);//decode cid
 int CMD56_data_in(int fd, int argCmd56, char *block_data_buff);
 void dump_smart_data(char *block_data_buff);

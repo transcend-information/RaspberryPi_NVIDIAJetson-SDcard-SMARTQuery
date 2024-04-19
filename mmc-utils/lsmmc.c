@@ -2300,10 +2300,6 @@ char* get_cid(char *dir, char *type)
 	char *cid;
 	if(strstr(type, "MMC"))
 	{	
-		if (chdir(dir) < 0) {
-			fprintf(stderr,
-				"MMC/SD information directory '%s' does not exist.\n",dir);
-		}
 		cid = read_file("cid");
 		if (!cid) {
 			fprintf(stderr,

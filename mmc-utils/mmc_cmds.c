@@ -3379,42 +3379,29 @@ int show_product_id(char *device)
 {
 	int ret = 0;
 	FILE *ptr = NULL;
-	char readbuf[256];
-	char *udevadm_cmd = "udevadm info --query=all --name=";
+	char *udevadm_cmd = "udevadm info --query=path --name=";
 	char cmd[50]={0};
 	char dir[150]={0};
-	char sysfs_path[150] = {0};
+	char sysfs_path[256] = {0};
 	char *cid;
 	char *type = NULL;
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
 
-	if(strstr(device, "sd") != NULL)
-	{
-		strcpy(dir, device);
-		type = "SD";
-		cid = get_cid(dir, "SD");
-	}
-	else
+	if(strstr(device, "mmc") != NULL)
 	{	
-		strcpy(cmd,udevadm_cmd);
-		strcat(cmd,device);
+		sprintf(cmd, "%s%s",udevadm_cmd, device);
 		if((ptr = popen(cmd, "r")) != NULL)
 		{
-			while(fgets(readbuf,256,ptr) != NULL)
-			{			
-				if(strstr(readbuf, "P: ") != NULL)
-				{
-					int n = strlen("P: ");
-					strncpy(sysfs_path, readbuf+n, strlen(readbuf)-n-1);
-					break;
-				}
+			if(fgets(sysfs_path,256,ptr) == NULL)
+			{
+				fprintf(stderr, "Error get device path.\n");
+				exit(1);
 			}
 			pclose(ptr);
 		}
 
-		strcpy(dir, "/sys");
-		strcat(dir, sysfs_path);
-		strcat(dir, "/device");
+		sysfs_path[strcspn(sysfs_path,"\n")] = '\0';
+		sprintf(dir, "/sys%s/device", sysfs_path);
 
 		if (chdir(dir) < 0) {
 			fprintf(stderr,
@@ -3425,6 +3412,12 @@ int show_product_id(char *device)
 		type = read_file("type");
 		cid = get_cid(dir, "MMC");
 	}
+	else
+	{
+		type = "SD";
+		cid = get_cid(device, "SD");
+	}
+	
 
 	if(strcmp(cid, "") == 0 || process_cid(cid, type, cid_info))
 	{
@@ -3442,20 +3435,47 @@ int show_product_id(char *device)
 int show_CID_info(int nargs, char **argv)
 {
 	int ret;
-
 	char *device;
 	char *type, *cid;
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
 
+	FILE *ptr = NULL;
+	char *udevadm_cmd = "udevadm info --query=path --name=";
+	char cmd[50]={0};
+	char dir[150]={0};
+	char sysfs_path[256] = {0};
+
 	device = argv[nargs-1];
 
-	if (chdir(device) < 0) {
+	if(strstr(device, "mmc"))
+	{
+		sprintf(cmd, "%s%s",udevadm_cmd, device);
+		if((ptr = popen(cmd, "r")) != NULL)
+		{
+			if(fgets(sysfs_path,256,ptr) == NULL)
+			{
+				fprintf(stderr, "Error get device path.\n");
+				exit(1);
+			}
+			pclose(ptr);
+		}
+
+		sysfs_path[strcspn(sysfs_path,"\n")] = '\0';
+		sprintf(dir, "/sys%s/device", sysfs_path);
+		if (chdir(dir) < 0) {
 			fprintf(stderr,
-				"MMC/SD information directory '%s' does not exist.\n",device);
+				"MMC/SD information directory '%s' does not exist.\n",dir);
 			return -1;
+		}
+
+		type = read_file("type");
+		cid = get_cid(dir, "MMC");
 	}
-	type = read_file("type");
-	cid = get_cid(device, "MMC");
+	else 
+	{
+		type = "SD";
+		cid = get_cid(device,"SCSI");
+	}
 
 	if(strcmp(cid, "") == 0)
 	{
@@ -3491,48 +3511,6 @@ int show_CID_info(int nargs, char **argv)
 	printf("\n%s\n", value);
 
 	ret = 0;
-	
-	return ret;
-}
-
-int show_SCSI_CID(int nargs, char **argv)
-{
-	int ret;
-
-	char *device;
-	char *type, *cid;
-	CIDInfo *cid_info = malloc(sizeof(*cid_info));
-
-	device = argv[nargs-1];
-
-	type = "SD";
-	cid = get_cid(device,"SCSI");
-
-	if(strcmp(cid, "") == 0)
-	{
-		printf("get cid info fail.\n");
-		exit(1);
-	}
-
-	ret = process_cid(cid, type, cid_info);
-	if(ret)
-	{
-		printf("process cid info fail.\n");
-		exit(1);
-	}
-	printf("type:\t\t\t%s",cid_info->type);
-
-	char value[64];
-	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
-	printf("\n%s", value);
-	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
-	printf("\n%s", value);
-	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
-	printf("\n%s", value);
-	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
-	printf("\n%s", value);
-	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
-	printf("\n%s\n", value);
 	
 	return ret;
 }

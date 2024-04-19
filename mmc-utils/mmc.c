@@ -285,14 +285,7 @@ static struct Command commands[] = {
 		NULL
 	},
 	{ show_CID_info, -1,    /* Get MMC CID info*/
-		"cidinfo", "<device path>\n"
-			"Print MMC CID data from <device path>.\n"
-			"The device path should specify the cid file directory.\n",
-		NULL
-	},
-	{ show_SCSI_CID, -1,    /* Get SCSI CID info*/
-		"scsicid", "<device>\n"
-			"Print SCSI CID data from <device>.\n",
+		"cidinfo", "<device>\n",
 		NULL
 	},
 
