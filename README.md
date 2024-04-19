@@ -78,7 +78,7 @@ Usage
 8. Get CID information by following command.
    
 ```
- sudo ./mmc cidinfo /sys/block/mmcblk0/device
+ sudo ./mmc cidinfo /dev/mmcblk0
 ``` 
 
 Command Execution
