@@ -3585,7 +3585,6 @@ int CMD56_data_in(int fd, int argCmd56, char *block_data_buff)
 int SCSI_CMD56(int *fd, char *block_data_buff)
 {
 	int ret=0;
-
 	int block_size = SD_SMT_BLOCK_SIZE;
 	memset(block_data_buff, 0, sizeof(__u8) * SD_SMT_BLOCK_SIZE);
 
@@ -3604,15 +3603,9 @@ int SCSI_CMD56(int *fd, char *block_data_buff)
 	io_hdr.dxferp = block_data_buff;
 		
     io_hdr.timeout = 20000;
-    if(ioctl(*fd, SG_IO, &io_hdr) < 0)
-    {
-        printf("ioctl fail\n");
-        ret = 1;
-    }
-    else
-    {
-        ret = 0;
-    }
+	ret = ioctl(*fd, SG_IO, &io_hdr);
+    if(ret)        
+		perror("ioctl fail");
 
 	return ret;
 }
@@ -3620,11 +3613,8 @@ int SCSI_CMD56(int *fd, char *block_data_buff)
 int SCSI_CMD10(int *fd, char *block_data_buff)
 {
 	int ret=0;
-
 	int block_size = SD_CID_BLOCK_SIZE;
-	// char data_buff[SD_CID_BLOCK_SIZE];
 	memset(block_data_buff, 0, sizeof(__u8) * SD_CID_BLOCK_SIZE);
-
 
     unsigned char sense_b[32];
     unsigned char CmdBlk16[16] = RDF5CMD10;
@@ -3641,15 +3631,9 @@ int SCSI_CMD10(int *fd, char *block_data_buff)
 	io_hdr.dxferp = block_data_buff;
 		
     io_hdr.timeout = 20000;
-    if(ioctl(*fd, SG_IO, &io_hdr) < 0)
-    {
-        printf("ioctl fail\n");
-        ret = 1;
-    }
-    else
-    {
-        ret = 0;
-    }
+	ret = ioctl(*fd, SG_IO, &io_hdr);
+    if(ret)
+		perror("ioctl fail");
 
 	return ret;
 }
@@ -3708,17 +3692,13 @@ int is_transcend_reader(char *device)
 	char *udevadm_cmd = "udevadm info --query=property -n ";
 	char *grep_cmd = " | grep -E 'ID_USB_VENDOR_ID|ID_VENDOR_ID'";
 	char cmd[100];
-	char *vid = malloc(25);
 
-	strcpy(cmd,udevadm_cmd);
-	strcat(cmd,device);
-	strcat(cmd,grep_cmd);
+	sprintf(cmd, "%s%s%s", udevadm_cmd, device, grep_cmd);
 	if((ptr = popen(cmd, "r")) != NULL)
 	{
 		while(fgets(readbuf,256,ptr) != NULL)
 		{	
-			strncpy(vid, readbuf, strlen(readbuf)-1);
-			if(strstr(vid, TS_VID) != NULL) // vid is 8564
+			if(strstr(readbuf, TS_VID) != NULL)
 			{
 				ret=0;		
 				break;
