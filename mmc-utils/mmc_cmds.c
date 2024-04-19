@@ -65,6 +65,12 @@ static inline __u32 per_byte_htole32(__u8 *arr)
 	return arr[0] | arr[1] << 8 | arr[2] << 16 | arr[3] << 24;
 }
 
+static const char *months[] = {
+	"jan", "feb", "mar", "apr", "may", "jun",
+	"jul", "aug", "sep", "oct", "nov", "dec",
+	"invalid0", "invalid1", "invalid2", "invalid3",
+};
+
 int read_extcsd(int fd, __u8 *ext_csd)
 {
 	int ret = 0;
@@ -3420,14 +3426,7 @@ int show_product_id(char *device)
 		cid = get_cid(dir, "MMC");
 	}
 
-
-	if(strcmp(cid, "") == 0)
-	{
-		printf("get cid info fail.\n");
-		ret = 1;
-		return ret;
-	}
-	if(process_cid(cid, type, cid_info))
+	if(strcmp(cid, "") == 0 || process_cid(cid, type, cid_info))
 	{
 		printf("get cid info fail.\n");
 		ret = 1;
@@ -3444,12 +3443,6 @@ int show_CID_info(int nargs, char **argv)
 {
 	int ret;
 
-	static const char *months[] = {
-		"jan", "feb", "mar", "apr", "may", "jun",
-		"jul", "aug", "sep", "oct", "nov", "dec",
-		"invalid0", "invalid1", "invalid2", "invalid3",
-	};
-
 	char *device;
 	char *type, *cid;
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
@@ -3461,13 +3454,19 @@ int show_CID_info(int nargs, char **argv)
 				"MMC/SD information directory '%s' does not exist.\n",device);
 			return -1;
 	}
-
 	type = read_file("type");
-
 	cid = get_cid(device, "MMC");
-	if(process_cid(cid, type, cid_info))
+
+	if(strcmp(cid, "") == 0)
 	{
 		printf("get cid info fail.\n");
+		exit(1);
+	}
+	
+	ret = process_cid(cid, type, cid_info);
+	if(ret)
+	{
+		printf("process cid info fail.\n");
 		exit(1);
 	}
 	printf("type:\t\t\t%s",cid_info->type);
@@ -3491,7 +3490,7 @@ int show_CID_info(int nargs, char **argv)
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
 	printf("\n%s\n", value);
 
-	ret = 1;
+	ret = 0;
 	
 	return ret;
 }
@@ -3499,12 +3498,6 @@ int show_CID_info(int nargs, char **argv)
 int show_SCSI_CID(int nargs, char **argv)
 {
 	int ret;
-
-	static const char *months[] = {
-		"jan", "feb", "mar", "apr", "may", "jun",
-		"jul", "aug", "sep", "oct", "nov", "dec",
-		"invalid0", "invalid1", "invalid2", "invalid3",
-	};
 
 	char *device;
 	char *type, *cid;
@@ -3514,9 +3507,17 @@ int show_SCSI_CID(int nargs, char **argv)
 
 	type = "SD";
 	cid = get_cid(device,"SCSI");
-	if(process_cid(cid, type, cid_info))
+
+	if(strcmp(cid, "") == 0)
 	{
 		printf("get cid info fail.\n");
+		exit(1);
+	}
+
+	ret = process_cid(cid, type, cid_info);
+	if(ret)
+	{
+		printf("process cid info fail.\n");
 		exit(1);
 	}
 	printf("type:\t\t\t%s",cid_info->type);
@@ -3532,8 +3533,6 @@ int show_SCSI_CID(int nargs, char **argv)
 	printf("\n%s", value);
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
 	printf("\n%s\n", value);
-
-	ret = 1;
 	
 	return ret;
 }

@@ -2297,7 +2297,7 @@ err:
 
 char* get_cid(char *dir, char *type)
 {
-	char *cid = NULL;
+	char *cid;
 	if(strstr(type, "MMC"))
 	{	
 		if (chdir(dir) < 0) {
@@ -2313,25 +2313,27 @@ char* get_cid(char *dir, char *type)
 	else
 	{
 		int fd, ret;
+		int offset;
 		char cid_stream[SD_CID_BLOCK_SIZE];
-		char cid_hex[32];
+		cid = (char *)malloc(sizeof(char)*31);
 		fd = open(dir, O_RDWR);
 		if (fd < 0) {
 			perror("open");
 			exit(1);
 		}
 		ret = SCSI_CMD10(&fd, cid_stream);
-		if (ret) {
-			fprintf(stderr, "CMD56 function fail, %s\n", dir);
-			exit(1);
+		if (ret || cid_stream[0]==0) {
+			fprintf(stderr, "CMD10 function fail, %s\n", dir);
+			cid[0] = '\0';
+			return cid;
 		}
-		int offset = 0;
+
+		offset = 0;
 		for(int i=1 ; i<SD_CID_BLOCK_SIZE ; i++)
 		{
-			offset += sprintf(cid_hex+offset, "%02x", cid_stream[i]);
+			offset += sprintf(cid+offset, "%02x", cid_stream[i]);
 		}
-		cid = (char *)malloc(strlen(cid_hex)+1);
-		sprintf(cid, "%s", cid_hex);
+		cid[31] = '\0';
 
 		if (!cid) {
 			fprintf(stderr,
@@ -2347,7 +2349,7 @@ int process_cid(char *cid, char *type, CIDInfo *cid_info)
 	
 	if (strcmp(type, "MMC") && strcmp(type, "SD")) {
 		fprintf(stderr, "Unknown type: '%s'\n", type);
-		return -1;
+		return 1;
 	}
 	else{
 		cid_info->type = type;
