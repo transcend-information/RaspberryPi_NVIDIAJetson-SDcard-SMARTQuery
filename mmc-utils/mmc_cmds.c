@@ -3473,6 +3473,11 @@ int show_CID_info(int nargs, char **argv)
 	}
 	else 
 	{
+		if(is_transcend_reader(device) == 1)
+		{
+			printf("Please use Transcend SD card reader\n");
+			exit(1);
+		}
 		type = "SD";
 		cid = get_cid(device,"SCSI");
 	}
