@@ -2329,7 +2329,7 @@ char* get_cid(char *dir, char *type)
 		{
 			offset += sprintf(cid+offset, "%02x", cid_stream[i]);
 		}
-		cid[31] = '\0';
+		cid[30] = '\0';
 
 		if (!cid) {
 			fprintf(stderr,

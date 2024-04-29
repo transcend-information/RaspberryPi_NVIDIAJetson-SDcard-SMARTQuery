@@ -3349,18 +3349,20 @@ int show_df_info(char *device)
 	char readbuf[256];
 	char *df_cmd = "df -h -T | grep ";
 	char cmd[100];
-	char *sysfs_path = malloc(100);
+	//char *sysfs_path = malloc(100);
 
-	strcpy(cmd,df_cmd);
-	strcat(cmd,device);
+	//strcpy(cmd,df_cmd);
+	//strcat(cmd,device);
+	sprintf(cmd, "%s%s", df_cmd, device);
 
 	if((ptr = popen(cmd, "r")) != NULL)
 	{
 		printf("Filesystem     Type      Size  Used Avail Use%% Mounted on\n");
 		while(fgets(readbuf,256,ptr) != NULL)
 		{		
-			strncpy(sysfs_path, readbuf, strlen(readbuf)-1);
-			printf("%s\n",sysfs_path);
+			//strncpy(sysfs_path, readbuf, strlen(readbuf)-1);
+			//printf("%s\n",sysfs_path);
+			printf("%s", readbuf);
 		}
 		pclose(ptr);
 		ret = 0;
@@ -3371,7 +3373,7 @@ int show_df_info(char *device)
 		ret = 1;
 	}
 	
-	free(sysfs_path);
+	//free(sysfs_path);
 	return ret;
 }
 
