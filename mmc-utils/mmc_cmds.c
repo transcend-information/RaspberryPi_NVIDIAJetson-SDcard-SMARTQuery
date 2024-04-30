@@ -3335,8 +3335,8 @@ int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/
 		exit(1);
 	}
 
-	show_df_info(device);
-	show_product_id(device);
+	//show_df_info(device);
+	//show_product_id(device);
 	
 	is_transcend_card(data_buff, TYPE_SMART); /* Only support microSDXC430T and microSDXC450I */
 	return ret;
@@ -3717,7 +3717,7 @@ void parsing_SMART_info(char *block_data_buff) /* parsing SMART 512-byte array *
 	char value[64];
 	
 	sprintf(value, "==========SMART Info==========");
-	printf("\n%s", value);
+	printf("%s", value);
 
 	char *card_marker = grabString(block_data_buff, 0, 16);
 	sprintf(value, "Card Marker(0x00):\t\t\t%s", card_marker);
