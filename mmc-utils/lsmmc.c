@@ -2311,13 +2311,14 @@ char* get_cid(char *dir, char *type)
 		int fd, ret;
 		int offset;
 		char cid_stream[SD_CID_BLOCK_SIZE];
-		cid = (char *)malloc(sizeof(char)*31);
+		cid = (char *)malloc(sizeof(char)*(CID_LEN+1));
 		fd = open(dir, O_RDWR);
 		if (fd < 0) {
 			perror("open");
 			exit(1);
 		}
 		ret = SCSI_CMD10(&fd, cid_stream);
+		
 		if (ret || cid_stream[0]==0) {
 			fprintf(stderr, "CMD10 function fail, %s\n", dir);
 			cid[0] = '\0';

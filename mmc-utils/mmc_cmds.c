@@ -3442,7 +3442,6 @@ int show_CID_info(int nargs, char **argv)
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
 
 	FILE *ptr = NULL;
-	char *udevadm_cmd = "udevadm info --query=path --name=";
 	char cmd[50]={0};
 	char dir[150]={0};
 	char sysfs_path[256] = {0};
@@ -3451,7 +3450,7 @@ int show_CID_info(int nargs, char **argv)
 
 	if(strstr(device, "mmc"))
 	{
-		sprintf(cmd, "%s%s",udevadm_cmd, device);
+		sprintf(cmd, "udevadm info --query=path --name=%s", device);
 		if((ptr = popen(cmd, "r")) != NULL)
 		{
 			if(fgets(sysfs_path,256,ptr) == NULL)
@@ -3501,17 +3500,10 @@ int show_CID_info(int nargs, char **argv)
 	char value[64];
 	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
 	printf("\n%s", value);
-	// if(strcmp(cid_info->type,"SD") == 0 )
-	// 	sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
-	// else
-	// 	sprintf(value, "OEM/Applicateion ID:\t%d", cid_info->mmc_oid);
-	// printf("\n%s", value);
 	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
 	printf("\n%s", value);
 	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
 	printf("\n%s", value);
-	// sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
-	// printf("\n%s", value);
 	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
 	printf("\n%s", value);
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
@@ -3618,7 +3610,7 @@ int SCSI_CMD10(int *fd, char *block_data_buff)
 	int block_size = SD_CID_BLOCK_SIZE;
 	memset(block_data_buff, 0, sizeof(__u8) * SD_CID_BLOCK_SIZE);
 
-    unsigned char sense_b[32];
+    unsigned char sense_b[32]={0};
     unsigned char CmdBlk16[16] = RDF5CMD10;
     sg_io_hdr_t io_hdr;
     memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
@@ -3636,7 +3628,6 @@ int SCSI_CMD10(int *fd, char *block_data_buff)
 	ret = ioctl(*fd, SG_IO, &io_hdr);
     if(ret)
 		perror("ioctl fail");
-
 	return ret;
 }
 
@@ -3689,13 +3680,10 @@ int is_transcend_reader(char *device)
 {
 	int ret = 1;
 	FILE *ptr = NULL;
-	char *TS_VID = "8564";
 	char readbuf[256];
-	char *udevadm_cmd = "udevadm info --query=property -n ";
-	char *grep_cmd = " | grep -E 'ID_USB_VENDOR_ID|ID_VENDOR_ID'";
 	char cmd[100];
 
-	sprintf(cmd, "%s%s%s", udevadm_cmd, device, grep_cmd);
+	snprintf(cmd, 100, "udevadm info --query=property -n %s | grep -E 'ID_USB_VENDOR_ID|ID_VENDOR_ID'", device);
 	if((ptr = popen(cmd, "r")) != NULL)
 	{
 		while(fgets(readbuf,256,ptr) != NULL)
