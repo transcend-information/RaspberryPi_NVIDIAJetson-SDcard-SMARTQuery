@@ -3277,7 +3277,7 @@ int do_SMART_buffer_dump(int nargs, char **argv)/* Show SMART 512-byte buffer by
 	{
 		if(is_transcend_reader(device) == 1)
 		{
-			printf("Please use Transcend SD card reader\n");
+			printf("Please use Transcend RDF5 card reader\n");
 			exit(1);
 		}
 		ret = SCSI_CMD56(&fd, data_buff);
@@ -3320,7 +3320,7 @@ int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/
 	{
 		if(is_transcend_reader(device) == 1)
 		{
-			printf("Please use Transcend SD card reader\n");
+			printf("Please use Transcend RDF5 card reader\n");
 			exit(1);
 		}
 		ret = SCSI_CMD56(&fd, data_buff);
@@ -3476,7 +3476,7 @@ int show_CID_info(int nargs, char **argv)
 	{
 		if(is_transcend_reader(device) == 1)
 		{
-			printf("Please use Transcend SD card reader\n");
+			printf("Please use Transcend RDF5 card reader\n");
 			exit(1);
 		}
 		type = "SD";
@@ -3539,7 +3539,7 @@ int show_Health_info(int nargs, char **argv) /* Show Health */
 	{
 		if(is_transcend_reader(device) == 1)
 		{
-			printf("Please use Transcend SD card reader\n");
+			printf("Please use Transcend RDF5 card reader\n");
 			exit(1);
 		}
 		ret = SCSI_CMD56(&fd, data_buff);
@@ -3683,7 +3683,7 @@ int is_transcend_reader(char *device)
 	char readbuf[256];
 	char cmd[100];
 
-	snprintf(cmd, 100, "udevadm info --query=property -n %s | grep -E 'ID_USB_VENDOR_ID|ID_VENDOR_ID'", device);
+	snprintf(cmd, 100, "udevadm info --query=property -n %s | grep -E 'ID_USB_VENDOR|ID_VENDOR'", device);
 	if((ptr = popen(cmd, "r")) != NULL)
 	{
 		while(fgets(readbuf,256,ptr) != NULL)
