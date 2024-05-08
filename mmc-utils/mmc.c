@@ -284,12 +284,11 @@ static struct Command commands[] = {
 		"health", "<device>\n",
 		NULL
 	},
-	{ show_CID_info, -1,    /* Get CID info*/
-		"cid info", "<device path>\n"
-			"Print CID data from <device path>.\n"
-			"The device path should specify the cid file directory.",
+	{ show_CID_info, -1,    /* Get MMC CID info*/
+		"cidinfo", "<device>\n",
 		NULL
 	},
+
 	{ 0, 0, 0, 0 }
 };
 
@@ -390,7 +389,7 @@ static int check_ambiguity(struct Command *cmd, char **argv){
 				continue;
 			for(s2 = cp->cmds[i], s1 = argv[i+1];
 				*s1 == *s2 && *s1; s1++, s2++ ) ;
-			if( !*s1 )
+			if( !*s1 && !*s2)
 				match++;
 		}
 		if(match){

@@ -18,6 +18,9 @@ Hardware requirements
    - Transcend Embedded microSD 430T / 450I / 460I / 460T 
    - Transcend Embedded SD SDC460T / SDC400I / SDC240T
 
+3. Supported Card Reader
+   - Transcend RDF5
+
 Install Raspberry Pi OS
 -------------------------
 1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget microSD with an SD card reader at https://www.raspberrypi.com/software
@@ -78,7 +81,7 @@ Usage
 8. Get CID information by following command.
    
 ```
- sudo ./mmc cid info /sys/block/mmcblk0/device
+ sudo ./mmc cidinfo /dev/mmcblk0
 ``` 
 
 Command Execution
@@ -93,7 +96,7 @@ Command Execution
 ![Heath](health.png)
 
 4. To show CID info</br></br>
-![CIDInfo](cid_info.png)
+![CIDInfo](cidinfo.png)
 
 
 Note: For other SMART Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>

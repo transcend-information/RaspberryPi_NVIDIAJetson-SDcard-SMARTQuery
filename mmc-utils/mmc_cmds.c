@@ -30,6 +30,8 @@
 #include <assert.h>
 #include <linux/fs.h> /* for BLKGETSIZE */
 
+#include <scsi/sg.h>
+
 #include "mmc.h"
 #include "mmc_cmds.h"
 #include "3rdparty/hmac_sha/hmac_sha2.h"
@@ -62,6 +64,12 @@ static inline __u32 per_byte_htole32(__u8 *arr)
 {
 	return arr[0] | arr[1] << 8 | arr[2] << 16 | arr[3] << 24;
 }
+
+static const char *months[] = {
+	"jan", "feb", "mar", "apr", "may", "jun",
+	"jul", "aug", "sep", "oct", "nov", "dec",
+	"invalid0", "invalid1", "invalid2", "invalid3",
+};
 
 int read_extcsd(int fd, __u8 *ext_csd)
 {
@@ -3257,11 +3265,33 @@ int do_SMART_buffer_dump(int nargs, char **argv)/* Show SMART 512-byte buffer by
 		perror("open file fail");
 		exit(1);
 	}
-	ret = CMD56_data_in(fd, argCmd56 , data_buff);
-	if (ret) {
-	fprintf(stderr, "CMD56 function fail, %s\n", device);
-	exit(1);
+	if(strstr(device,"mmc"))
+	{
+		ret = CMD56_data_in(fd, argCmd56 , data_buff);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", device);
+			exit(1);
+		}
 	}
+	else if(strstr(device,"sd"))
+	{
+		if(is_transcend_reader(device) == 1)
+		{
+			printf("Please use Transcend RDF5 card reader\n");
+			exit(1);
+		}
+		ret = SCSI_CMD56(&fd, data_buff);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", device);
+			exit(1);
+		}
+	}
+	else
+	{
+		fprintf(stderr, "Only support MMC & SCSI, %s\n", device);
+		exit(1);
+	}
+	
 	dump_smart_data(data_buff); 	
 	return ret;
 }
@@ -3269,7 +3299,7 @@ int do_SMART_buffer_dump(int nargs, char **argv)/* Show SMART 512-byte buffer by
 int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/ Erase count / FW version, etc...)  */
 {
 	int argCmd56 = 0x110005F9;
-	char data_buff[SD_SMT_BLOCK_SIZE];
+	char data_buff[SD_SMT_BLOCK_SIZE] = {0};
 	int fd, ret;
 	char *device;
 	device = argv[nargs-1];
@@ -3278,69 +3308,191 @@ int show_SMART_info(int nargs, char **argv) /* Show SMART info (ex: Speed class/
 		perror("open file fail");
 		exit(1);
 	}
-	ret = CMD56_data_in(fd, argCmd56 , data_buff);
-	if (ret) {
-		fprintf(stderr, "CMD56 function fail, %s\n", device);
+	if(strstr(device,"mmc"))
+	{
+		ret = CMD56_data_in(fd, argCmd56 , data_buff);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", device);
+			exit(1);
+		}
+	}
+	else if(strstr(device,"sd"))
+	{
+		if(is_transcend_reader(device) == 1)
+		{
+			printf("Please use Transcend RDF5 card reader\n");
+			exit(1);
+		}
+		ret = SCSI_CMD56(&fd, data_buff);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", device);
+			exit(1);
+		}
+	}
+	else
+	{
+		fprintf(stderr, "Only support MMC & SCSI, %s\n", device);
 		exit(1);
 	}
-				
-	if(system("df / -h -T") == -1)
-		printf("Error to get df info\n");	
 
-	FILE *ptr = NULL;
-	char readbuf[256];
-	char *udevadm_cmd = "udevadm info --query=all --name=";
-	char cmd[100];
-	char *sysfs_path = malloc(100);
-	CIDInfo *cid_info = malloc(sizeof(*cid_info));
-
-	strcpy(cmd,udevadm_cmd);
-	strcat(cmd,device);
-	if((ptr = popen(cmd, "r")) != NULL)
-	{
-		while(fgets(readbuf,256,ptr) != NULL)
-		{			
-			if(strstr(readbuf, "P:") != NULL)
-			{
-				int n = strlen("P: ");
-				strncpy(sysfs_path, readbuf+n, strlen(readbuf)-n-1);
-				break;
-			}
-		}
-		pclose(ptr);
-	}
-
-	cmd[0] = '\0';
-	strcpy(cmd, "/sys");
-	strcat(cmd, sysfs_path);
-	strcat(cmd, "/device");
-	if(process_cid(cmd, cid_info) != 1)
-		printf("get cid info fail.\n");
-	else
-		printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
+	//show_df_info(device);
+	//show_product_id(device);
 	
 	is_transcend_card(data_buff, TYPE_SMART); /* Only support microSDXC430T and microSDXC450I */
+	return ret;
+}
+
+int show_df_info(char *device)
+{
+	int ret = 0;
+	FILE *ptr = NULL;
+	char readbuf[256];
+	char *df_cmd = "df -h -T | grep ";
+	char cmd[100];
+	//char *sysfs_path = malloc(100);
+
+	//strcpy(cmd,df_cmd);
+	//strcat(cmd,device);
+	sprintf(cmd, "%s%s", df_cmd, device);
+
+	if((ptr = popen(cmd, "r")) != NULL)
+	{
+		printf("Filesystem     Type      Size  Used Avail Use%% Mounted on\n");
+		while(fgets(readbuf,256,ptr) != NULL)
+		{		
+			//strncpy(sysfs_path, readbuf, strlen(readbuf)-1);
+			//printf("%s\n",sysfs_path);
+			printf("%s", readbuf);
+		}
+		pclose(ptr);
+		ret = 0;
+	}
+	else
+	{
+		printf("Error to get df info\n");
+		ret = 1;
+	}
+	
+	//free(sysfs_path);
+	return ret;
+}
+
+int show_product_id(char *device)
+{
+	int ret = 0;
+	FILE *ptr = NULL;
+	char *udevadm_cmd = "udevadm info --query=path --name=";
+	char cmd[50]={0};
+	char dir[150]={0};
+	char sysfs_path[256] = {0};
+	char *cid;
+	char *type = NULL;
+	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
+	if(strstr(device, "mmc") != NULL)
+	{	
+		sprintf(cmd, "%s%s",udevadm_cmd, device);
+		if((ptr = popen(cmd, "r")) != NULL)
+		{
+			if(fgets(sysfs_path,256,ptr) == NULL)
+			{
+				fprintf(stderr, "Error get device path.\n");
+				exit(1);
+			}
+			pclose(ptr);
+		}
+
+		sysfs_path[strcspn(sysfs_path,"\n")] = '\0';
+		sprintf(dir, "/sys%s/device", sysfs_path);
+
+		if (chdir(dir) < 0) {
+			fprintf(stderr,
+				"MMC/SD information directory '%s' does not exist.\n",dir);
+			return -1;
+		}
+
+		type = read_file("type");
+		cid = get_cid(dir, "MMC");
+	}
+	else
+	{
+		type = "SD";
+		cid = get_cid(device, "SD");
+	}
+	
+
+	if(strcmp(cid, "") == 0 || process_cid(cid, type, cid_info))
+	{
+		printf("get cid info fail.\n");
+		ret = 1;
+	}
+	else
+	{
+		printf("product: '%s' %d.%d\n", cid_info->pnm, cid_info->prv_major, cid_info->prv_minor);
+		ret = 0;
+	}
 	return ret;
 }
 
 int show_CID_info(int nargs, char **argv)
 {
 	int ret;
-
-	static const char *months[] = {
-		"jan", "feb", "mar", "apr", "may", "jun",
-		"jul", "aug", "sep", "oct", "nov", "dec",
-		"invalid0", "invalid1", "invalid2", "invalid3",
-	};
-
 	char *device;
+	char *type, *cid;
 	CIDInfo *cid_info = malloc(sizeof(*cid_info));
+
+	FILE *ptr = NULL;
+	char cmd[50]={0};
+	char dir[150]={0};
+	char sysfs_path[256] = {0};
 
 	device = argv[nargs-1];
 
-	if(process_cid(device, cid_info) != 1)
+	if(strstr(device, "mmc"))
+	{
+		sprintf(cmd, "udevadm info --query=path --name=%s", device);
+		if((ptr = popen(cmd, "r")) != NULL)
+		{
+			if(fgets(sysfs_path,256,ptr) == NULL)
+			{
+				fprintf(stderr, "Error get device path.\n");
+				exit(1);
+			}
+			pclose(ptr);
+		}
+
+		sysfs_path[strcspn(sysfs_path,"\n")] = '\0';
+		sprintf(dir, "/sys%s/device", sysfs_path);
+		if (chdir(dir) < 0) {
+			fprintf(stderr,
+				"MMC/SD information directory '%s' does not exist.\n",dir);
+			return -1;
+		}
+
+		type = read_file("type");
+		cid = get_cid(dir, "MMC");
+	}
+	else 
+	{
+		if(is_transcend_reader(device) == 1)
+		{
+			printf("Please use Transcend RDF5 card reader\n");
+			exit(1);
+		}
+		type = "SD";
+		cid = get_cid(device,"SCSI");
+	}
+
+	if(strcmp(cid, "") == 0)
 	{
 		printf("get cid info fail.\n");
+		exit(1);
+	}
+	
+	ret = process_cid(cid, type, cid_info);
+	if(ret)
+	{
+		printf("process cid info fail.\n");
 		exit(1);
 	}
 	printf("type:\t\t\t%s",cid_info->type);
@@ -3348,23 +3500,16 @@ int show_CID_info(int nargs, char **argv)
 	char value[64];
 	sprintf(value, "Manufacturer ID:\t0x%02x %s", cid_info->mid,cid_info->manufacturer);
 	printf("\n%s", value);
-	// if(strcmp(cid_info->type,"SD") == 0 )
-	// 	sprintf(value, "OEM/Applicateion ID:\t%s", cid_info->sd_oid);
-	// else
-	// 	sprintf(value, "OEM/Applicateion ID:\t%d", cid_info->mmc_oid);
-	// printf("\n%s", value);
 	sprintf(value, "Product Name:\t\t%s", cid_info->pnm);
 	printf("\n%s", value);
 	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
 	printf("\n%s", value);
-	// sprintf(value, "Serial Number:\t\t0x%08x", cid_info->psn);
-	// printf("\n%s", value);
 	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
 	printf("\n%s", value);
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
 	printf("\n%s\n", value);
 
-	ret = 1;
+	ret = 0;
 	
 	return ret;
 }
@@ -3382,10 +3527,31 @@ int show_Health_info(int nargs, char **argv) /* Show Health */
 		exit(1);
 	}
 	//Get one 512-byte data block by CMD56 function
-	ret = CMD56_data_in(fd, argCmd56 , data_buff);
-	if (ret) {
-	fprintf(stderr, "CMD56 function fail, %s\n", device);
-	exit(1);
+	if(strstr(device,"mmc"))
+	{
+		ret = CMD56_data_in(fd, argCmd56 , data_buff);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", device);
+			exit(1);
+		}
+	}
+	else if(strstr(device,"sd"))
+	{
+		if(is_transcend_reader(device) == 1)
+		{
+			printf("Please use Transcend RDF5 card reader\n");
+			exit(1);
+		}
+		ret = SCSI_CMD56(&fd, data_buff);
+		if (ret) {
+			fprintf(stderr, "CMD56 function fail, %s\n", device);
+			exit(1);
+		}
+	}
+	else
+	{
+		fprintf(stderr, "Only support MMC & SCSI, %s\n", device);
+		exit(1);
 	}
 	is_transcend_card(data_buff, TYPE_HEALTH); //Transcend SD card only
 	return ret;
@@ -3409,6 +3575,62 @@ int CMD56_data_in(int fd, int argCmd56, char *block_data_buff)
 		perror("ioctl fail");
 	return ret;
 }
+
+int SCSI_CMD56(int *fd, char *block_data_buff)
+{
+	int ret=0;
+	int block_size = SD_SMT_BLOCK_SIZE;
+	memset(block_data_buff, 0, sizeof(__u8) * SD_SMT_BLOCK_SIZE);
+
+    unsigned char sense_b[32];
+    unsigned char CmdBlk16[16] = RDF5CMD56;
+    sg_io_hdr_t io_hdr;
+    memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
+          
+    io_hdr.interface_id = 'S';
+    io_hdr.cmd_len = sizeof(CmdBlk16);
+    io_hdr.cmdp = CmdBlk16;
+    io_hdr.mx_sb_len = sizeof(sense_b);
+    io_hdr.sbp = sense_b;
+    io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+    io_hdr.dxfer_len = block_size;
+	io_hdr.dxferp = block_data_buff;
+		
+    io_hdr.timeout = 20000;
+	ret = ioctl(*fd, SG_IO, &io_hdr);
+    if(ret)        
+		perror("ioctl fail");
+
+	return ret;
+}
+
+int SCSI_CMD10(int *fd, char *block_data_buff)
+{
+	int ret=0;
+	int block_size = SD_CID_BLOCK_SIZE;
+	memset(block_data_buff, 0, sizeof(__u8) * SD_CID_BLOCK_SIZE);
+
+    unsigned char sense_b[32]={0};
+    unsigned char CmdBlk16[16] = RDF5CMD10;
+    sg_io_hdr_t io_hdr;
+    memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
+
+    io_hdr.interface_id = 'S';
+    io_hdr.cmd_len = sizeof(CmdBlk16);
+    io_hdr.cmdp = CmdBlk16;
+    io_hdr.mx_sb_len = sizeof(sense_b);
+    io_hdr.sbp = sense_b;
+    io_hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+    io_hdr.dxfer_len = block_size;
+	io_hdr.dxferp = block_data_buff;
+		
+    io_hdr.timeout = 20000;
+	ret = ioctl(*fd, SG_IO, &io_hdr);
+    if(ret)
+		perror("ioctl fail");
+	return ret;
+}
+
 void dump_smart_data(char *block_data_buff)
 {
 	int count=0;
@@ -3454,12 +3676,36 @@ void is_transcend_card(char *block_data_buff, char function)
 	return;
 }
 
+int is_transcend_reader(char *device)
+{
+	int ret = 1;
+	FILE *ptr = NULL;
+	char readbuf[256];
+	char cmd[100];
+
+	snprintf(cmd, 100, "udevadm info --query=property -n %s | grep -E 'ID_USB_VENDOR|ID_VENDOR'", device);
+	if((ptr = popen(cmd, "r")) != NULL)
+	{
+		while(fgets(readbuf,256,ptr) != NULL)
+		{	
+			if(strstr(readbuf, TS_VID) != NULL)
+			{
+				ret=0;		
+				break;
+			}			
+		}
+		pclose(ptr);
+	}
+
+	return ret;
+}
+
 void parsing_SMART_info(char *block_data_buff) /* parsing SMART 512-byte array */ 
 {	
 	char value[64];
 	
 	sprintf(value, "==========SMART Info==========");
-	printf("\n%s", value);
+	printf("%s", value);
 
 	char *card_marker = grabString(block_data_buff, 0, 16);
 	sprintf(value, "Card Marker(0x00):\t\t\t%s", card_marker);
@@ -3595,8 +3841,12 @@ void parsing_SMART_info(char *block_data_buff) /* parsing SMART 512-byte array *
 	
 	char *sd_firmware_version = grabString(block_data_buff, 128, 6);
 	sprintf(value, "SD Firmware Version(0x80):\t\t%s", sd_firmware_version);
-	printf("\n%s\n", value);
+	printf("\n%s", value);
 	free(sd_firmware_version);
+
+	double abnormal_power_detect = hexArrToDec(block_data_buff, 164, 4);
+	sprintf(value, "Abnormal Power Detect(0xA4):\t\t%.0f", abnormal_power_detect);
+	printf("\n%s\n", value);
 	
 	return;
 }

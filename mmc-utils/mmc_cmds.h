@@ -54,17 +54,17 @@ int do_alt_boot_op(int nargs, char **argv);
 
 /* CID */
 typedef struct cid_info {
-	unsigned int mid;
-	char sd_oid[3];
-	unsigned int mmc_oid;
-	char pnm[7];
-	unsigned int prv_major;
-	unsigned int prv_minor;
-	unsigned int psn;
-	unsigned int mdt_month;
-	unsigned int mdt_year;
-	unsigned int crc;
-	unsigned int cbx;//MMC specific
+	unsigned int mid;			// Manufacturer ID
+	char sd_oid[3];				// OEM/Application ID
+	unsigned int mmc_oid; 		// OEM/Application ID
+	char pnm[7];				// Product Name
+	unsigned int prv_major;		// Product Revision
+	unsigned int prv_minor;		// Product Revision
+	unsigned int psn;			// Serial Number
+	unsigned int mdt_month;		// Manufacture Date Code
+	unsigned int mdt_year;		// Manufacture Date Code
+	unsigned int crc;			// CRC7 checksum
+	unsigned int cbx;			// MMC specific
 	char *manufacturer;
 	char *type;
 }CIDInfo;
@@ -73,13 +73,20 @@ typedef struct cid_info {
 int do_SMART_buffer_dump(int nargs, char **argv); //Show SMART raw buffer
 int show_SMART_info(int nargs, char **argv); //Show SMART info
 int show_Health_info(int nargs, char **argv); //Show Health info
+int show_df_info(char *device);
+int show_product_id(char *device);
+int is_transcend_reader(char *device);
+int SCSI_CMD56(int *fd, char *block_data_buff);
+int SCSI_CMD10(int *fd, char *block_data_buff);
 int show_CID_info(int nargs, char **argv);
-int process_cid(char *dir, CIDInfo *cid_info);//Get cid info
+int process_cid(char *cid, char *type, CIDInfo *cid_info);//decode cid
 int CMD56_data_in(int fd, int argCmd56, char *block_data_buff);
 void dump_smart_data(char *block_data_buff);
 void is_transcend_card(char *block_data_buff, char function);
 void parsing_SMART_info(char *block_data_buff);
 void parsing_Health_info(char *block_data_buff);
+char* get_cid(char *dir, char *type);//Get cid info
+char *read_file(char *name);
 char *grabString(char* data, int start_pos, int length);
 char *grabHex(char* data, int start_pos, int length);
 double hexArrToDec(char *data, int start_pos, int length);

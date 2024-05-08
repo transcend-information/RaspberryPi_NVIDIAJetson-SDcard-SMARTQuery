@@ -46,6 +46,9 @@
 #include <string.h>
 #include <unistd.h>
 
+
+#include <fcntl.h>
+
 #include "mmc.h"
 #include "mmc_cmds.h"
 
@@ -2292,29 +2295,58 @@ err:
 	return ret;
 }
 
-int process_cid(char *dir, CIDInfo *cid_info)
+char* get_cid(char *dir, char *type)
 {
-	char *type = NULL, *cid = NULL;
-	int ret = 0;
+	char *cid;
+	if(strstr(type, "MMC"))
+	{	
+		cid = read_file("cid");
+		if (!cid) {
+			fprintf(stderr,
+				"Could not read card identity in directory '%s'.\n",dir);
+		}
+	}
+	else
+	{
+		int fd, ret;
+		int offset;
+		char cid_stream[SD_CID_BLOCK_SIZE];
+		cid = (char *)malloc(sizeof(char)*(CID_LEN+1));
+		fd = open(dir, O_RDWR);
+		if (fd < 0) {
+			perror("open");
+			exit(1);
+		}
+		ret = SCSI_CMD10(&fd, cid_stream);
+		
+		if (ret || cid_stream[0]==0) {
+			fprintf(stderr, "CMD10 function fail, %s\n", dir);
+			cid[0] = '\0';
+			return cid;
+		}
+
+		offset = 0;
+		for(int i=1 ; i<SD_CID_BLOCK_SIZE ; i++)
+		{
+			offset += sprintf(cid+offset, "%02x", cid_stream[i]);
+		}
+		cid[30] = '\0';
+
+		if (!cid) {
+			fprintf(stderr,
+				"Could not read card identity in directory '%s'.\n",dir);
+		}
+	}
+	return cid;
+}
+
+int process_cid(char *cid, char *type, CIDInfo *cid_info)
+{
 	struct config *config = malloc(sizeof(*config));
-
-	if (chdir(dir) < 0) {
-		fprintf(stderr,
-			"MMC/SD information directory '%s' does not exist.\n",dir);
-		return -1;
-	}
-
-	type = read_file("type");
-	if (!type) {
-		fprintf(stderr,
-			"Could not read card interface type in directory '%s'.\n",dir);
-		return -1;
-	}
 	
 	if (strcmp(type, "MMC") && strcmp(type, "SD")) {
 		fprintf(stderr, "Unknown type: '%s'\n", type);
-		ret = -1;
-		goto err;
+		return 1;
 	}
 	else{
 		cid_info->type = type;
@@ -2324,14 +2356,7 @@ int process_cid(char *dir, CIDInfo *cid_info)
 		config->bus = SD;
 	else
 		config->bus = MMC;
-
-	cid = read_file("cid");
-	if (!cid) {
-		fprintf(stderr,
-			"Could not read card identity in directory '%s'.\n",dir);
-		ret = -1;
-		goto err;
-	}
+	
 
 	if(config->bus == SD)
 	{
@@ -2352,13 +2377,7 @@ int process_cid(char *dir, CIDInfo *cid_info)
 		cid_info->manufacturer = get_manufacturer(config, cid_info->mid);
 		cid_info->pnm[6] = '\0';
 	}
-	return 1;
-
-err:
-	free(cid);
-	free(type);
-	
-	return ret;
+	return 0;
 }
 
 static int do_read_reg(int argc, char **argv, enum REG_TYPE reg)
