@@ -18,6 +18,9 @@ Hardware requirements
    - Transcend Embedded microSD 430T / 450I / 460I / 460T 
    - Transcend Embedded SD SDC460T / SDC400I / SDC240T
 
+3. Supported Card Reader
+   - Transcend RDF5
+
 Install Raspberry Pi OS
 -------------------------
 1. Download and install Raspberry Pi OS Imager(64-bit or 32-bit) to the tartget microSD with an SD card reader at https://www.raspberrypi.com/software
