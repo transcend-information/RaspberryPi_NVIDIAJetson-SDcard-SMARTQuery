@@ -88,16 +88,19 @@ Command Execution
 -------------------------
 1. To dump SMART raw data</br></br>
 ![Buffer](smtbuffer.png)
+![Buffer](smtbuffer_rdf5.png)
 
-2. To show SMART info</br></br>
+3. To show SMART info</br></br>
 ![SMART](smart.png)
+![SMART](smart_rdf5.png)
 
-3. To show card life(Heath)</br></br>
+4. To show card life(Heath)</br></br>
 ![Heath](health.png)
+![Heath](health_rdf5.png)
 
-4. To show CID info</br></br>
+5. To show CID info</br></br>
 ![CIDInfo](cidinfo.png)
-
+![CIDInfo](cid_rdf5.png)
 
 Note: For other SMART / CID Data Structure, please refer to Transcend Embedded microSD / SD datasheet.</br>
 ![sdsmart](sdsmart.PNG)
