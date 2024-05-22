@@ -36,7 +36,7 @@ Install NVIDIA Jetson nano OS
 3. Insert the microSD to NVIDIA Jetson native microSD slot.
 
 
-Usage
+Usage with native microSD or SD slot.
 -------------------------
 
 - The mmc-utils package and modify it to support SMART DUMP function. Please download the source code and modify it step by step.
@@ -82,7 +82,10 @@ Usage
    
 ```
  sudo ./mmc cidinfo /dev/mmcblk0
-``` 
+```
+Usage with the RDF5 Card Reader
+-------------------------
+Please change the < device > parameter by the USB card reader device. ex. /dev/sda
 
 Command Execution
 -------------------------
