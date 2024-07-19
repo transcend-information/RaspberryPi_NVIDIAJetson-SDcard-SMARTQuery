@@ -50,6 +50,9 @@ int do_general_cmd_read(int nargs, char **argv);
 int do_softreset(int nargs, char **argv);
 int do_preidle(int nargs, char **argv);
 int do_alt_boot_op(int nargs, char **argv);
+/*SD Card Erase*/
+int do_sd_erase(int nargs, char **argv);
+int set_block_len(int fd, int blk_len);
 
 
 /* CID */

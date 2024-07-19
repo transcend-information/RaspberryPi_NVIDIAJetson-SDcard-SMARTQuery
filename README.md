@@ -1,3 +1,4 @@
+
 # Monitor SD card health and status using Raspberry Pi / NVIDIA Jetson Nano
 Get S.M.A.R.T / CID data for Transcend Embedded microSD / SD products. 
 
@@ -39,7 +40,7 @@ Install NVIDIA Jetson nano OS
 Usage with native microSD or SD slot.
 -------------------------
 
-- The mmc-utils package and modify it to support SMART DUMP function. Please download the source code and modify it step by step.
+- The mmc-utils package and modify it to support SMART DUMP and Secure Erase function. Please download the source code and modify it step by step.
 
 1. Download the code by following command with terminal.
    
@@ -47,7 +48,7 @@ Usage with native microSD or SD slot.
  git clone https://kernel.googlesource.com/pub/scm/utils/mmc/mmc-utils
 ```
 
-2. Update the 4 files in mmc-utils [folder](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/tree/main/mmc-utils) to the corresponding files.
+2. Update the 5 files in mmc-utils [folder](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/tree/main/mmc-utils) to the corresponding files.
 
 3. Use the Make command to compile the updated source code.
 
@@ -82,6 +83,11 @@ Usage with native microSD or SD slot.
    
 ```
  sudo ./mmc cidinfo /dev/mmcblk0
+```
+9. Secure erase SD card by following command.
+   
+```
+ sudo ./mmc sderase /dev/mmcblk0
 ```
 Usage with the RDF5 Card Reader
 -------------------------

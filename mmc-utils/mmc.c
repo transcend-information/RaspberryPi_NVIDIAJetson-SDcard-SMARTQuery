@@ -288,6 +288,10 @@ static struct Command commands[] = {
 		"cidinfo", "<device>\n",
 		NULL
 	},
+	{ do_sd_erase, -1, /* Erase Device*/
+ 		"sderase", "<device>\n",
+ 		NULL
+	},
 
 	{ 0, 0, 0, 0 }
 };

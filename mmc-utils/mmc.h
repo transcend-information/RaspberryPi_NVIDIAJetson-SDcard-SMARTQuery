@@ -49,6 +49,15 @@
 #define MMC_GEN_CMD		56   /* adtc  [31:1] stuff bits.
 					      [0]: RD/WR1 R1 */
 
+#define MMC_SET_BLOCKLEN 16 /* ac [31:0] block len R1 */
+#define MMC_LOCK_UNLOCK 42 /* adtc R1b */		
+#define MMC_CMD42_SET_LOCK 0x5 /* SET_PWD & LOCK */				
+#define MMC_CMD42_ERASE 0x8 /* ERASE */
+#define MAX_PWD_LENGTH 32 /* max PWDS_LEN: old+new */
+#define MMC_BLOCK_SIZE 512 /* data blk size for cmd42 */
+#define MMC_R1_ERROR (1 << 19) /* R1 bit19 */
+#define MMC_R1_LOCK_ULOCK_FAIL (1 << 24) /* R1 bit24 */
+
 #define R1_OUT_OF_RANGE         (1 << 31)       /* er, c */
 #define R1_ADDRESS_ERROR        (1 << 30)       /* erx, c */
 #define R1_BLOCK_LEN_ERROR      (1 << 29)       /* er, c */
