@@ -16,7 +16,7 @@ Hardware requirements
    - NVIDIA Jetson Nano
 
 2. Supported SD cards
-   - Transcend Embedded microSD 430T / 450I / 460I / 460T 
+   - Transcend Embedded microSD 430T / 450I / 460I / 460T / 465T 
    - Transcend Embedded SD SDC460T / SDC400I / SDC240T
 
 3. Supported Card Reader
