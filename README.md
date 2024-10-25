@@ -55,6 +55,11 @@ Usage with native microSD or SD slot.
 ```
  make
 ```
+>  **Tip:** If you encounter the error `/bin/sh: 1: sparse: not found` during the compilation process, it means that the `sparse` tool is not installed. You can install it using the following command:
+>  ```
+>   sudo apt-get install sparse
+>  ```
+>  After the installation is complete, run the `make` command again to continue the compilation process.
 
 4. After build success, check the availability of the mmc tool by -h
 
