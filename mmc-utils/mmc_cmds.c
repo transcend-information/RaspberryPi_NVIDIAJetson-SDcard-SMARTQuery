@@ -3861,6 +3861,8 @@ int show_CID_info(int nargs, char **argv)
 	printf("\n%s", value);
 	sprintf(value, "Product Revision:\t0x%01x%01x", cid_info->prv_major, cid_info->prv_minor);
 	printf("\n%s", value);
+	sprintf(value, "Product Serial Number:\t%08X", cid_info->psn);
+    printf("\n%s", value);
 	sprintf(value, "Manufacture Date:\t%u %s", 2000 + cid_info->mdt_year, months[cid_info->mdt_month]);
 	printf("\n%s", value);
 	sprintf(value, "CRC checksum:\t\t0x%02x", cid_info->crc);
