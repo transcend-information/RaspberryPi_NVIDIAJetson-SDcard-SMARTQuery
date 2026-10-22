@@ -4015,7 +4015,7 @@ void is_transcend_card(char *block_data_buff, char function)
 	{
 		char controllerChar[9];
 		strncpy(controllerChar, block_data_buff + 88, 8);
-		if (strstr(controllerChar, "SM2706"))
+		if (strstr(controllerChar, "SM2706") || strstr(controllerChar, "SM2709"))
 		{
 			if (function == TYPE_SMART)
 			{
