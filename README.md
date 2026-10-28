@@ -15,7 +15,7 @@ Hardware requirements
    - NVIDIA Jetson Nano
 
 2. Supported SD cards
-   - Transcend Embedded microSD 240I / 430T / 450I / 460I / 460T / 465I  
+   - Transcend Embedded microSD 240I / 430T / 450I / 460I / 460T / 465I / 470T 
    - Transcend Embedded SD SDC460T / SDC400I / SDC240I
 
 3. Supported Card Reader
@@ -50,7 +50,7 @@ Usage with native microSD or SD slot.
 
 2. Update the 5 files in mmc-utils [folder](https://github.com/transcend-information/RaspberryPi-SDcard-SMARTQuery/tree/main/mmc-utils) to the corresponding files.
 
-3. Use the Make command to compile the updated source code.
+3. Move to the mmc-utils folder and use the Make command to compile the updated source code.
 
 ```
  make
